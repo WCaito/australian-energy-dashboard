@@ -1,12 +1,43 @@
-
 {
   "version": 2,
   "builds": [
-    { "src": "openelectricity-proxy-server.js", "use": "@vercel/node" }
+    {
+      "src": "openelectricity-proxy-server.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "*.html",
+      "use": "@vercel/static"
+    }
   ],
   "routes": [
-    { "src": "/api/(.*)", "dest": "openelectricity-proxy-server.js" },
-    { "src": "/(.*)\\.(html|css|js|png|jpg|jpeg|svg|ico)", "dest": "/$1.$2" },
-    { "src": "/(.*)", "dest": "/australian-energy-market.html" }
+    {
+      "src": "/api/health",
+      "dest": "/openelectricity-proxy-server.js"
+    },
+    {
+      "src": "/api/historical/(.*)",
+      "dest": "/openelectricity-proxy-server.js"
+    },
+    {
+      "src": "/api/historical-all",
+      "dest": "/openelectricity-proxy-server.js"
+    },
+    {
+      "src": "/api/clear-cache",
+      "dest": "/openelectricity-proxy-server.js"
+    },
+    {
+      "src": "/historical-data.html",
+      "dest": "/historical-data.html"
+    },
+    {
+      "src": "/australian-energy-market.html",
+      "dest": "/australian-energy-market.html"
+    },
+    {
+      "src": "/",
+      "dest": "/australian-energy-market.html"
+    }
   ]
 }
