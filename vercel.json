@@ -1,17 +1,12 @@
+
 {
   "version": 2,
   "builds": [
     { "src": "openelectricity-proxy-server.js", "use": "@vercel/node" }
   ],
   "routes": [
-    /* Serverless API proxy */
     { "src": "/api/(.*)", "dest": "openelectricity-proxy-server.js" },
-
-    /* Serve common static assets directly (CSS/JS/images/HTML by filename) */
     { "src": "/(.*)\\.(html|css|js|png|jpg|jpeg|svg|ico)", "dest": "/$1.$2" },
-
-    /* Catch‑all: send everything else to your SPA shell */
     { "src": "/(.*)", "dest": "/australian-energy-market.html" }
   ]
 }
-``
