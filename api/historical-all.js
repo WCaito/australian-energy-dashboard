@@ -145,15 +145,18 @@ module.exports = async (req, res) => {
         const years = parseInt(req.query.years) || 4;
         const regions = ['NSW1', 'VIC1', 'QLD1', 'SA1', 'TAS1'];
 
-        // Use a shorter date range to test - last 3 months instead of 4 years
+        // Calculate proper date range - going BACK in time
         const endDate = new Date();
         const startDate = new Date();
-        startDate.setMonth(endDate.getMonth() - 3); // Only 3 months for testing
+        
+        // For testing, use just 1 year of data
+        startDate.setFullYear(endDate.getFullYear() - 1);
         
         const startDateStr = startDate.toISOString().split('T')[0];
         const endDateStr = endDate.toISOString().split('T')[0];
 
         console.log(`Fetching data from ${startDateStr} to ${endDateStr}`);
+        console.log(`Today is: ${new Date().toISOString().split('T')[0]}`);
 
         const apiResponse = await fetchOpenElectricityData(startDateStr, endDateStr, API_KEY);
 
