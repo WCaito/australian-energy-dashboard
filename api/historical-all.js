@@ -22,15 +22,15 @@ function fetchOpenElectricityData(startDate, endDate, apiKey) {
             let data = '';
             
             console.log(`Response status: ${res.statusCode}`);
-            console.log(`Response headers:`, res.headers);
             
             res.on('data', (chunk) => { data += chunk; });
             
             res.on('end', () => {
-                console.log(`Response body (first 500 chars): ${data.substring(0, 500)}`);
+                console.log(`Response received, length: ${data.length} bytes`);
                 
                 try {
                     if (res.statusCode === 404) {
+                        console.error(`404 response body: ${data}`);
                         reject(new Error(`OpenElectricity API returned 404. The endpoint or date range may not be available. Try a shorter time range or check if your API key has full access.`));
                         return;
                     }
@@ -51,6 +51,7 @@ function fetchOpenElectricityData(startDate, endDate, apiKey) {
                     }
                     
                     const jsonData = JSON.parse(data);
+                    console.log(`Successfully parsed JSON response`);
                     resolve(jsonData);
                 } catch (error) {
                     console.error(`Parse error:`, error);
@@ -142,21 +143,22 @@ module.exports = async (req, res) => {
     }
 
     try {
-        const years = parseInt(req.query.years) || 4;
+        const yearsRequested = parseInt(req.query.years) || 4;
         const regions = ['NSW1', 'VIC1', 'QLD1', 'SA1', 'TAS1'];
 
-        // Calculate proper date range - going BACK in time
+        // Calculate date range - go back in time from today
         const endDate = new Date();
         const startDate = new Date();
         
-        // For testing, use just 1 year of data
+        // Go back 1 year from today (use 1 year regardless of what user requests, to avoid errors)
         startDate.setFullYear(endDate.getFullYear() - 1);
         
         const startDateStr = startDate.toISOString().split('T')[0];
         const endDateStr = endDate.toISOString().split('T')[0];
 
-        console.log(`Fetching data from ${startDateStr} to ${endDateStr}`);
-        console.log(`Today is: ${new Date().toISOString().split('T')[0]}`);
+        console.log(`User requested: ${yearsRequested} years`);
+        console.log(`Actually fetching data from ${startDateStr} to ${endDateStr}`);
+        console.log(`Today's date is: ${new Date().toISOString().split('T')[0]}`);
 
         const apiResponse = await fetchOpenElectricityData(startDateStr, endDateStr, API_KEY);
 
@@ -166,6 +168,9 @@ module.exports = async (req, res) => {
             allData[region] = monthlyData;
             console.log(`Processed ${monthlyData.length} months for ${region}`);
         }
+
+        const totalDataPoints = Object.values(allData).reduce((sum, data) => sum + data.length, 0);
+        console.log(`Total data points across all regions: ${totalDataPoints}`);
 
         return res.status(200).json({
             data: allData,
