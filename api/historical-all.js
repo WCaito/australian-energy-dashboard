@@ -1,4 +1,5 @@
 const http = require('http');
+const https = require('https');
 
 /**
  * Fetch AEMO CSV data for a specific region and month
@@ -6,12 +7,46 @@ const http = require('http');
 function fetchAEMOCSV(region, year, month) {
     return new Promise((resolve, reject) => {
         const yearMonth = `${year}${month.toString().padStart(2, '0')}`;
-        const url = `http://www.aemo.com.au/aemo/data/nem/priceanddemand/PRICE_AND_DEMAND_${yearMonth}_${region}.csv`;
+        // Try HTTPS first (AEMO likely redirects HTTP to HTTPS)
+        const url = `https://www.aemo.com.au/aemo/data/nem/priceanddemand/PRICE_AND_DEMAND_${yearMonth}_${region}.csv`;
         
         console.log(`Fetching: ${url}`);
 
-        http.get(url, (res) => {
-            let data = '';
+        https.get(url, (res) => {
+            // Handle redirects
+            if (res.statusCode === 301 || res.statusCode === 302) {
+                const redirectUrl = res.headers.location;
+                console.log(`Following redirect to: ${redirectUrl}`);
+                
+                // Determine if redirect is HTTP or HTTPS
+                const protocol = redirectUrl.startsWith('https') ? https : http;
+                
+                protocol.get(redirectUrl, (redirectRes) => {
+                    let data = '';
+                    
+                    if (redirectRes.statusCode !== 200) {
+                        console.log(`HTTP ${redirectRes.statusCode} after redirect for ${region} ${yearMonth}`);
+                        reject(new Error(`HTTP ${redirectRes.statusCode}`));
+                        return;
+                    }
+                    
+                    redirectRes.on('data', (chunk) => { data += chunk; });
+                    redirectRes.on('end', () => {
+                        try {
+                            const average = parseCSVAndCalculateAverage(data);
+                            if (average === null) {
+                                reject(new Error('No valid price data'));
+                                return;
+                            }
+                            console.log(`✓ ${region} ${yearMonth}: $${average.toFixed(2)}/MWh`);
+                            resolve(average);
+                        } catch (error) {
+                            reject(error);
+                        }
+                    });
+                }).on('error', reject);
+                return;
+            }
 
             if (res.statusCode !== 200) {
                 console.log(`HTTP ${res.statusCode} for ${region} ${yearMonth}`);
@@ -19,10 +54,8 @@ function fetchAEMOCSV(region, year, month) {
                 return;
             }
 
-            res.on('data', (chunk) => {
-                data += chunk;
-            });
-
+            let data = '';
+            res.on('data', (chunk) => { data += chunk; });
             res.on('end', () => {
                 try {
                     const average = parseCSVAndCalculateAverage(data);
