@@ -124,7 +124,7 @@ async function fetchAllRegionsData(years) {
     });
     
     const now = new Date();
-    const monthsToFetch = Math.min(years * 12, 24); // Limit to 2 years max to avoid too many requests
+    const monthsToFetch = Math.ceil(years * 12);
     
     console.log(`Fetching ${monthsToFetch} months of data for ${regions.length} regions`);
     
@@ -137,26 +137,38 @@ async function fetchAllRegionsData(years) {
         // Don't try to fetch future data
         if (targetDate > now) continue;
         
-        // Fetch data for all regions for this month
-        for (const region of regions) {
+        // Fetch data for all regions for this month in parallel
+        const monthPromises = regions.map(async (region) => {
             try {
                 const average = await fetchAEMOCSV(region, year, month);
                 
-                allData[region].push({
-                    year: year,
-                    month: month,
-                    date: targetDate.toISOString(),
-                    averagePrice: parseFloat(average.toFixed(2))
-                });
-                
-                // Small delay to avoid overwhelming AEMO servers
-                await new Promise(resolve => setTimeout(resolve, 100));
-                
+                return {
+                    region,
+                    data: {
+                        year: year,
+                        month: month,
+                        date: targetDate.toISOString(),
+                        averagePrice: parseFloat(average.toFixed(2))
+                    }
+                };
             } catch (error) {
-                // Log but continue - some months might not have data
                 console.log(`Skipping ${region} ${year}-${month}: ${error.message}`);
+                return { region, data: null };
             }
-        }
+        });
+        
+        // Wait for all regions for this month
+        const monthResults = await Promise.all(monthPromises);
+        
+        // Add successful results to allData
+        monthResults.forEach(result => {
+            if (result.data) {
+                allData[result.region].push(result.data);
+            }
+        });
+        
+        // Small delay between months
+        await new Promise(resolve => setTimeout(resolve, 50));
     }
     
     // Sort each region's data by date
@@ -180,13 +192,14 @@ module.exports = async (req, res) => {
     try {
         const years = parseInt(req.query.years) || 4;
         
-        // Limit to 2 years to keep function execution time reasonable
-        const yearsToFetch = Math.min(years, 2);
+        // Fetch only 6 months to stay within Vercel's 30-second timeout
+        // (5 regions × 6 months = 30 requests @ ~1 sec each = ~30 seconds total)
+        const monthsToFetch = 6;
         
-        console.log(`Request for ${years} years, fetching ${yearsToFetch} years`);
+        console.log(`Request for ${years} years, fetching ${monthsToFetch} months (Vercel timeout limit)`);
         console.log(`Starting data fetch from AEMO...`);
         
-        const allData = await fetchAllRegionsData(yearsToFetch);
+        const allData = await fetchAllRegionsData(monthsToFetch / 12); // Convert months to years
         
         // Count total data points
         const totalPoints = Object.values(allData).reduce((sum, data) => sum + data.length, 0);
@@ -206,7 +219,8 @@ module.exports = async (req, res) => {
             source: 'AEMO (Australian Energy Market Operator)',
             dataPoints: totalPoints,
             yearsRequested: years,
-            yearsFetched: yearsToFetch
+            monthsFetched: monthsToFetch,
+            note: 'Limited to 6 months due to Vercel serverless timeout (30s)'
         });
 
     } catch (error) {
