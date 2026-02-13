@@ -1,14 +1,13 @@
 const https = require('https');
 
-/**
- * Fetch price data from OpenElectricity API
- */
 function fetchOpenElectricityData(startDate, endDate, apiKey) {
     return new Promise((resolve, reject) => {
+        const path = `/v4/market/NEM?metrics=price&interval=1d&primaryGrouping=network_region&dateStart=${startDate}&dateEnd=${endDate}`;
+        
         const options = {
             hostname: 'api.openelectricity.org.au',
             port: 443,
-            path: `/v4/market/NEM?metrics=price&interval=1d&primaryGrouping=network_region&dateStart=${startDate}&dateEnd=${endDate}`,
+            path: path,
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${apiKey}`,
@@ -16,29 +15,52 @@ function fetchOpenElectricityData(startDate, endDate, apiKey) {
             }
         };
 
-        console.log(`Fetching from OpenElectricity: ${startDate} to ${endDate}`);
+        console.log(`Fetching: https://api.openelectricity.org.au${path}`);
+        console.log(`API Key (first 10 chars): ${apiKey.substring(0, 10)}...`);
 
         const req = https.request(options, (res) => {
             let data = '';
-
-            res.on('data', (chunk) => {
-                data += chunk;
-            });
-
+            
+            console.log(`Response status: ${res.statusCode}`);
+            console.log(`Response headers:`, res.headers);
+            
+            res.on('data', (chunk) => { data += chunk; });
+            
             res.on('end', () => {
+                console.log(`Response body (first 500 chars): ${data.substring(0, 500)}`);
+                
                 try {
-                    if (res.statusCode !== 200) {
-                        reject(new Error(`HTTP ${res.statusCode}`));
+                    if (res.statusCode === 404) {
+                        reject(new Error(`OpenElectricity API returned 404. The endpoint or date range may not be available. Try a shorter time range or check if your API key has full access.`));
                         return;
                     }
-                    resolve(JSON.parse(data));
+                    
+                    if (res.statusCode === 401) {
+                        reject(new Error(`Invalid API key. Please check your OPENELECTRICITY_API_KEY.`));
+                        return;
+                    }
+                    
+                    if (res.statusCode === 403) {
+                        reject(new Error(`Access forbidden. Your API key may be waitlisted or doesn't have permission for this endpoint.`));
+                        return;
+                    }
+                    
+                    if (res.statusCode !== 200) {
+                        reject(new Error(`HTTP ${res.statusCode}: ${data}`));
+                        return;
+                    }
+                    
+                    const jsonData = JSON.parse(data);
+                    resolve(jsonData);
                 } catch (error) {
+                    console.error(`Parse error:`, error);
                     reject(error);
                 }
             });
         });
 
         req.on('error', (error) => {
+            console.error(`Request error:`, error);
             reject(error);
         });
 
@@ -46,23 +68,25 @@ function fetchOpenElectricityData(startDate, endDate, apiKey) {
     });
 }
 
-/**
- * Process OpenElectricity API response
- */
 function processRegionData(apiResponse, targetRegion) {
     if (!apiResponse.data || !Array.isArray(apiResponse.data)) {
+        console.log(`No data array in response for ${targetRegion}`);
         return [];
     }
 
     const priceData = apiResponse.data.find(d => d.metric === 'price');
     if (!priceData || !priceData.results) {
+        console.log(`No price data found for ${targetRegion}`);
         return [];
     }
 
     const regionData = priceData.results.find(r => r.id === targetRegion);
     if (!regionData || !regionData.history) {
+        console.log(`No region data found for ${targetRegion}`);
         return [];
     }
+
+    console.log(`Found ${regionData.history.length} data points for ${targetRegion}`);
 
     const monthlyGroups = {};
     
@@ -99,7 +123,6 @@ function processRegionData(apiResponse, targetRegion) {
 }
 
 module.exports = async (req, res) => {
-    // Set CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -111,6 +134,7 @@ module.exports = async (req, res) => {
     const API_KEY = process.env.OPENELECTRICITY_API_KEY;
 
     if (!API_KEY) {
+        console.error('OPENELECTRICITY_API_KEY not set');
         return res.status(500).json({
             error: 'API key not configured',
             message: 'OPENELECTRICITY_API_KEY environment variable not set'
@@ -121,34 +145,34 @@ module.exports = async (req, res) => {
         const years = parseInt(req.query.years) || 4;
         const regions = ['NSW1', 'VIC1', 'QLD1', 'SA1', 'TAS1'];
 
-        // Calculate date range
+        // Use a shorter date range to test - last 3 months instead of 4 years
         const endDate = new Date();
         const startDate = new Date();
-        startDate.setFullYear(endDate.getFullYear() - years);
+        startDate.setMonth(endDate.getMonth() - 3); // Only 3 months for testing
         
         const startDateStr = startDate.toISOString().split('T')[0];
         const endDateStr = endDate.toISOString().split('T')[0];
 
-        // Fetch data
+        console.log(`Fetching data from ${startDateStr} to ${endDateStr}`);
+
         const apiResponse = await fetchOpenElectricityData(startDateStr, endDateStr, API_KEY);
 
         const allData = {};
-
-        // Process each region
         for (const region of regions) {
             const monthlyData = processRegionData(apiResponse, region);
             allData[region] = monthlyData;
-            console.log(`✓ Processed ${monthlyData.length} months for ${region}`);
+            console.log(`Processed ${monthlyData.length} months for ${region}`);
         }
 
         return res.status(200).json({
             data: allData,
             fetchedAt: new Date().toISOString(),
-            source: 'OpenElectricity API'
+            source: 'OpenElectricity API',
+            dateRange: { start: startDateStr, end: endDateStr }
         });
 
     } catch (error) {
-        console.error('Error:', error);
+        console.error('Error in historical-all:', error);
         return res.status(500).json({
             error: 'Failed to fetch data',
             message: error.message
