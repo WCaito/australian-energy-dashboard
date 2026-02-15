@@ -95,21 +95,22 @@
         }
 
         .data-notice {
-            background: #fef3c7;
-            border-left: 3px solid #f59e0b;
+            background: #d1fae5;
+            border-left: 3px solid #059669;
             padding: 16px 24px;
             margin-bottom: 32px;
-            font-size: 0.875rem;
-            color: #92400e;
+            display: none;
         }
 
-        .data-notice strong {
-            font-weight: 600;
+        .data-notice-text {
+            font-size: 0.875rem;
+            color: #065f46;
+            font-weight: 500;
         }
 
         .controls {
             display: flex;
-            gap: 16px;
+            gap: 24px;
             margin-bottom: 48px;
             flex-wrap: wrap;
         }
@@ -120,49 +121,30 @@
             gap: 8px;
         }
 
-        .control-label {
-            font-size: 0.8125rem;
-            color: var(--text-secondary);
+        label {
+            font-size: 0.875rem;
             font-weight: 500;
+            color: var(--text-secondary);
         }
 
         select {
-            padding: 8px 12px;
+            padding: 10px 16px;
             border: 1px solid var(--border);
-            background: var(--background);
-            color: var(--text-primary);
-            font-family: 'IBM Plex Sans', sans-serif;
-            font-size: 0.875rem;
+            font-size: 0.9375rem;
+            font-family: inherit;
             cursor: pointer;
-            transition: all 0.2s ease;
-        }
-
-        select:hover {
-            border-color: var(--accent);
-        }
-
-        select:focus {
-            outline: none;
-            border-color: var(--accent);
-            box-shadow: 0 0 0 3px var(--accent-light);
-        }
-
-        .charts-grid {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 48px;
+            min-width: 200px;
         }
 
         .chart-container {
+            background: var(--background);
             border: 1px solid var(--border);
             padding: 32px;
-            background: var(--background);
+            margin-bottom: 48px;
         }
 
         .chart-header {
-            margin-bottom: 24px;
-            padding-bottom: 16px;
-            border-bottom: 1px solid var(--border);
+            margin-bottom: 32px;
         }
 
         .chart-title {
@@ -170,14 +152,13 @@
             font-size: 1.5rem;
             font-weight: 600;
             color: var(--text-primary);
-            margin-bottom: 8px;
+            margin-bottom: 16px;
         }
 
         .chart-stats {
-            display: flex;
-            gap: 32px;
-            font-size: 0.875rem;
-            color: var(--text-secondary);
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 16px;
         }
 
         .stat {
@@ -187,14 +168,14 @@
         }
 
         .stat-label {
-            color: var(--text-tertiary);
             font-size: 0.75rem;
+            color: var(--text-tertiary);
             text-transform: uppercase;
             letter-spacing: 0.05em;
+            font-weight: 500;
         }
 
         .stat-value {
-            font-family: 'IBM Plex Serif', Georgia, serif;
             font-size: 1.125rem;
             font-weight: 600;
             color: var(--text-primary);
@@ -203,29 +184,67 @@
         .canvas-wrapper {
             position: relative;
             height: 400px;
+            margin-bottom: 32px;
         }
 
-        footer {
-            margin-top: 80px;
-            padding: 32px 0;
-            text-align: center;
-            border-top: 1px solid var(--border);
-            color: var(--text-tertiary);
+        .price-events-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 24px;
+            font-size: 0.875rem;
+        }
+
+        .price-events-table th {
+            background: #f9fafb;
+            padding: 12px 16px;
+            text-align: left;
+            font-weight: 600;
+            color: var(--text-secondary);
+            border-bottom: 2px solid var(--border);
             font-size: 0.8125rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .price-events-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-primary);
+        }
+
+        .price-events-table tr:hover {
+            background: #fafafa;
+        }
+
+        .event-count {
+            font-weight: 600;
+        }
+
+        .event-percentage {
+            color: var(--text-secondary);
+            font-size: 0.8125rem;
+        }
+
+        .table-title {
+            font-family: 'IBM Plex Serif', Georgia, serif;
+            font-size: 1.125rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--text-primary);
         }
 
         .loading {
             text-align: center;
-            padding: 48px;
+            padding: 80px 20px;
             color: var(--text-secondary);
         }
 
         .spinner {
-            border: 2px solid var(--border);
-            border-top: 2px solid var(--accent);
+            border: 3px solid var(--border);
+            border-top: 3px solid var(--accent);
             border-radius: 50%;
-            width: 32px;
-            height: 32px;
+            width: 40px;
+            height: 40px;
             animation: spin 1s linear infinite;
             margin: 0 auto 16px;
         }
@@ -244,17 +263,12 @@
                 font-size: 2rem;
             }
 
-            .chart-container {
-                padding: 20px;
+            .controls {
+                flex-direction: column;
             }
 
-            .canvas-wrapper {
-                height: 300px;
-            }
-
-            .chart-stats {
-                flex-wrap: wrap;
-                gap: 16px;
+            select {
+                width: 100%;
             }
         }
     </style>
@@ -262,50 +276,42 @@
 <body>
     <div class="container">
         <header>
-            <a href="australian-energy-market.html" class="back-link">← Back to Dashboard</a>
+            <a href="australian-energy-market.html" class="back-link">
+                ← Back to Dashboard
+            </a>
             <h1>Historical Price Data</h1>
-            <div class="subtitle">4-year monthly average spot price trends by state</div>
+            <p class="subtitle">Monthly average and maximum spot prices from AEMO settlement data</p>
         </header>
 
         <div class="info-box">
-            <h3 class="info-title">About Spot Prices</h3>
-            <p class="info-text">Spot prices represent the wholesale price of electricity in the National Electricity Market (NEM) at each 5-minute trading interval, later averaged into 30-minute settlement periods. These prices reflect the real-time balance between electricity supply and demand, fluctuating based on factors including weather conditions, generation availability, fuel costs, and transmission constraints. The charts below show monthly average spot prices over the past 4 years, revealing long-term market trends, seasonal patterns, and the impact of major energy market events.</p>
+            <div class="info-title">About This Data</div>
+            <div class="info-text">
+                This page displays real historical electricity price data sourced directly from AEMO (Australian Energy Market Operator). The data comes from actual 5-minute settlement prices across the National Electricity Market (NEM). Each month's data shows the average price calculated from all 5-minute intervals, the maximum price reached during that period, and a breakdown of price events including negative pricing, high pricing ($300-$1,000/MWh), and extreme pricing (≥$1,000/MWh) occurrences.
+            </div>
         </div>
 
-        <div id="dataSourceNotice" class="data-notice" style="display: none;">
-            <strong>Data Source:</strong> <span id="dataSourceText"></span>
+        <div class="data-notice" id="dataSourceNotice">
+            <div class="data-notice-text" id="dataSourceText">
+                Loading data...
+            </div>
         </div>
 
         <div class="controls">
             <div class="control-group">
-                <label class="control-label" for="timeRange">Time Range</label>
-                <select id="timeRange" onchange="updateCharts()">
-                    <option value="4">Last 4 years</option>
-                    <option value="3">Last 3 years</option>
-                    <option value="2">Last 2 years</option>
-                    <option value="1">Last year</option>
-                </select>
-            </div>
-            <div class="control-group">
-                <label class="control-label" for="chartType">Chart Type</label>
+                <label for="chartType">Chart Type</label>
                 <select id="chartType" onchange="updateCharts()">
-                    <option value="line">Line</option>
-                    <option value="bar">Bar</option>
+                    <option value="line">Line Chart</option>
+                    <option value="bar">Bar Chart</option>
                 </select>
             </div>
         </div>
 
-        <div id="chartsContainer" class="charts-grid">
+        <div id="chartsContainer">
             <div class="loading">
                 <div class="spinner"></div>
-                Loading historical data...
+                Loading historical data from AEMO...
             </div>
         </div>
-
-        <footer>
-            <p>Historical data sourced from AEMO</p>
-            <p>Data updated daily at midnight AEST</p>
-        </footer>
     </div>
 
     <script>
@@ -320,23 +326,19 @@
         let charts = {};
         let cachedRealData = null;
 
-        // Use relative URL so it works both locally and on Vercel
-        // When deployed to Vercel, this will be https://your-app.vercel.app
-        // When running locally, this will be http://localhost:3000
         const API_URL = window.location.protocol === 'file:' 
-            ? 'http://localhost:3000'  // Local file
-            : window.location.origin;   // Deployed or local server
+            ? 'http://localhost:3000'
+            : window.location.origin;
 
-        // Function to fetch real data from OpenElectricity through proxy server
-        async function loadHistoricalData(years) {
+        async function loadHistoricalData() {
             try {
-                console.log('Fetching real data from OpenElectricity API via proxy server...');
+                console.log('Fetching real data from AEMO via proxy server...');
                 
-                const response = await fetch(`${API_URL}/api/historical-all?years=${years}`);
+                const response = await fetch(`${API_URL}/api/historical-all`);
                 
                 if (!response.ok) {
                     const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+                    throw new Error(errorData.message || `HTTP ${response.status}`);
                 }
                 
                 const result = await response.json();
@@ -345,7 +347,7 @@
                     throw new Error('No data returned from server');
                 }
                 
-                // Transform the data into the format needed for charts
+                // Transform the data
                 const data = {};
                 
                 regions.forEach(region => {
@@ -353,21 +355,22 @@
                     if (regionData && regionData.length > 0) {
                         data[region.code] = regionData.map(item => ({
                             date: new Date(item.date),
-                            price: item.averagePrice
+                            averagePrice: item.averagePrice,
+                            maxPrice: item.maxPrice,
+                            priceEvents: item.priceEvents
                         }));
                     } else {
                         data[region.code] = [];
                     }
                 });
                 
-                // Check if we got data for at least some regions
                 const hasData = Object.values(data).some(regionData => regionData.length > 0);
                 
                 if (!hasData) {
                     throw new Error('No valid data received for any region');
                 }
                 
-                console.log('Successfully loaded real OpenElectricity data');
+                console.log('Successfully loaded real AEMO data');
                 return data;
                 
             } catch (error) {
@@ -377,12 +380,44 @@
         }
 
         function calculateStats(data) {
-            const prices = data.map(d => d.price);
+            const avgPrices = data.map(d => d.averagePrice);
+            const maxPrices = data.map(d => d.maxPrice);
+            
             return {
-                average: (prices.reduce((a, b) => a + b, 0) / prices.length).toFixed(2),
-                max: Math.max(...prices).toFixed(2),
-                min: Math.min(...prices).toFixed(2)
+                average: (avgPrices.reduce((a, b) => a + b, 0) / avgPrices.length).toFixed(2),
+                peak: Math.max(...maxPrices).toFixed(2),
+                lowest: Math.min(...avgPrices).toFixed(2)
             };
+        }
+
+        function aggregatePriceEvents(data) {
+            const totals = {
+                negative: { count: 0, percentage: 0 },
+                high: { count: 0, percentage: 0 },
+                extreme: { count: 0, percentage: 0 }
+            };
+            
+            let totalCount = 0;
+            
+            data.forEach(item => {
+                if (item.priceEvents) {
+                    totals.negative.count += parseInt(item.priceEvents.negative.count) || 0;
+                    totals.high.count += parseInt(item.priceEvents.high.count) || 0;
+                    totals.extreme.count += parseInt(item.priceEvents.extreme.count) || 0;
+                    totalCount += (parseInt(item.priceEvents.negative.count) || 0) + 
+                                  (parseInt(item.priceEvents.high.count) || 0) + 
+                                  (parseInt(item.priceEvents.extreme.count) || 0);
+                }
+            });
+            
+            // Calculate total intervals (rough estimate based on months)
+            const totalIntervals = data.length * 30 * 24 * 12; // months * days * hours * 5-min intervals
+            
+            totals.negative.percentage = ((totals.negative.count / totalIntervals) * 100).toFixed(2);
+            totals.high.percentage = ((totals.high.count / totalIntervals) * 100).toFixed(2);
+            totals.extreme.percentage = ((totals.extreme.count / totalIntervals) * 100).toFixed(2);
+            
+            return totals;
         }
 
         function createChart(region, data, chartType) {
@@ -391,39 +426,69 @@
             
             const ctx = canvas.getContext('2d');
 
-            // Destroy existing chart if it exists
             if (charts[region.code]) {
                 charts[region.code].destroy();
             }
 
+            const labels = data.map(d => d.date.toLocaleDateString('en-AU', { 
+                year: 'numeric',
+                month: 'short'
+            }));
+
             charts[region.code] = new Chart(ctx, {
                 type: chartType,
                 data: {
-                    labels: data.map(d => d.date.toLocaleDateString('en-AU', { 
-                        year: 'numeric',
-                        month: 'short'
-                    })),
-                    datasets: [{
-                        label: `${region.name} Monthly Average`,
-                        data: data.map(d => d.price),
-                        borderColor: region.color,
-                        backgroundColor: chartType === 'bar' ? region.color + '20' : region.color + '10',
-                        borderWidth: 2,
-                        fill: chartType === 'line',
-                        tension: 0.4,
-                        pointRadius: 0,
-                        pointHoverRadius: 5,
-                        pointHoverBackgroundColor: region.color,
-                        pointHoverBorderColor: '#ffffff',
-                        pointHoverBorderWidth: 2
-                    }]
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Average Price',
+                            data: data.map(d => d.averagePrice),
+                            borderColor: region.color,
+                            backgroundColor: chartType === 'bar' ? region.color + '40' : region.color + '20',
+                            borderWidth: 2,
+                            fill: chartType === 'line',
+                            tension: 0.4,
+                            pointRadius: 0,
+                            pointHoverRadius: 5,
+                            pointHoverBackgroundColor: region.color,
+                            pointHoverBorderColor: '#ffffff',
+                            pointHoverBorderWidth: 2,
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: 'Maximum Price',
+                            data: data.map(d => d.maxPrice),
+                            borderColor: '#dc2626',
+                            backgroundColor: chartType === 'bar' ? '#dc262640' : 'transparent',
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            fill: false,
+                            tension: 0.4,
+                            pointRadius: 0,
+                            pointHoverRadius: 5,
+                            pointHoverBackgroundColor: '#dc2626',
+                            pointHoverBorderColor: '#ffffff',
+                            pointHoverBorderWidth: 2,
+                            yAxisID: 'y1'
+                        }
+                    ]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
                     plugins: {
                         legend: {
-                            display: false
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                usePointStyle: true,
+                                padding: 15,
+                                font: { size: 12 }
+                            }
                         },
                         tooltip: {
                             backgroundColor: '#1a1a1a',
@@ -432,43 +497,64 @@
                             borderColor: '#666666',
                             borderWidth: 1,
                             padding: 12,
-                            displayColors: false,
+                            displayColors: true,
                             callbacks: {
-                                title: function(context) {
-                                    return context[0].label;
-                                },
                                 label: function(context) {
-                                    return 'Average: $' + context.parsed.y.toFixed(2) + ' /MWh';
+                                    let label = context.dataset.label || '';
+                                    if (label) label += ': ';
+                                    label += '$' + context.parsed.y.toFixed(2) + ' /MWh';
+                                    return label;
                                 }
                             }
                         }
                     },
                     scales: {
                         x: {
-                            grid: {
-                                display: false
-                            },
+                            grid: { display: false },
                             ticks: {
-                                maxTicksLimit: 24,
+                                maxTicksLimit: 12,
                                 color: '#999999',
-                                font: {
-                                    size: 11
-                                }
+                                font: { size: 11 }
                             }
                         },
                         y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
                             beginAtZero: false,
-                            grid: {
-                                color: '#e5e5e5'
-                            },
+                            grid: { color: '#e5e5e5' },
                             ticks: {
                                 color: '#999999',
                                 callback: function(value) {
                                     return '$' + value;
                                 },
-                                font: {
-                                    size: 11
-                                }
+                                font: { size: 11 }
+                            },
+                            title: {
+                                display: true,
+                                text: 'Average Price ($/MWh)',
+                                color: '#666666',
+                                font: { size: 12, weight: '500' }
+                            }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            beginAtZero: false,
+                            grid: { drawOnChartArea: false },
+                            ticks: {
+                                color: '#999999',
+                                callback: function(value) {
+                                    return '$' + value;
+                                },
+                                font: { size: 11 }
+                            },
+                            title: {
+                                display: true,
+                                text: 'Maximum Price ($/MWh)',
+                                color: '#dc2626',
+                                font: { size: 12, weight: '500' }
                             }
                         }
                     }
@@ -476,25 +562,51 @@
             });
         }
 
+        function createPriceEventsTable(events) {
+            return `
+                <div class="table-title">Price Events Analysis</div>
+                <table class="price-events-table">
+                    <thead>
+                        <tr>
+                            <th>Event Type</th>
+                            <th>Count</th>
+                            <th>% of Period</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Negative Prices (&lt; $0/MWh)</td>
+                            <td><span class="event-count">${events.negative.count.toLocaleString()}</span></td>
+                            <td><span class="event-percentage">${events.negative.percentage}%</span></td>
+                        </tr>
+                        <tr>
+                            <td>High Prices ($300 - $1,000/MWh)</td>
+                            <td><span class="event-count">${events.high.count.toLocaleString()}</span></td>
+                            <td><span class="event-percentage">${events.high.percentage}%</span></td>
+                        </tr>
+                        <tr>
+                            <td>Extreme Prices (≥ $1,000/MWh)</td>
+                            <td><span class="event-count">${events.extreme.count.toLocaleString()}</span></td>
+                            <td><span class="event-percentage">${events.extreme.percentage}%</span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            `;
+        }
+
         async function renderCharts() {
-            const timeRange = parseInt(document.getElementById('timeRange').value);
             const chartType = document.getElementById('chartType').value;
             const container = document.getElementById('chartsContainer');
 
-            // Show loading
-            container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading real historical data from OpenElectricity API...</div>';
+            container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading historical data from AEMO...</div>';
 
-            // Try to load real data
             try {
-                if (!cachedRealData || timeRange !== cachedRealData.years) {
-                    cachedRealData = {
-                        data: await loadHistoricalData(timeRange),
-                        years: timeRange
-                    };
-                    updateDataSourceNotice('✓ Real historical data from OpenElectricity API (formerly OpenNEM)');
+                if (!cachedRealData) {
+                    cachedRealData = await loadHistoricalData();
+                    updateDataSourceNotice('✓ Real AEMO settlement data. Showing 6 months of 5-minute interval prices aggregated by month.');
                 }
 
-                const allData = cachedRealData.data;
+                const allData = cachedRealData;
 
                 container.innerHTML = regions.map(region => {
                     const regionData = allData[region.code];
@@ -513,6 +625,7 @@
                     }
                     
                     const stats = calculateStats(regionData);
+                    const events = aggregatePriceEvents(regionData);
 
                     return `
                         <div class="chart-container">
@@ -520,27 +633,27 @@
                                 <h2 class="chart-title">${region.name} (${region.code})</h2>
                                 <div class="chart-stats">
                                     <div class="stat">
-                                        <span class="stat-label">Average</span>
+                                        <span class="stat-label">Avg Price</span>
                                         <span class="stat-value">$${stats.average} /MWh</span>
                                     </div>
                                     <div class="stat">
-                                        <span class="stat-label">Peak</span>
-                                        <span class="stat-value">$${stats.max} /MWh</span>
+                                        <span class="stat-label">Peak Price</span>
+                                        <span class="stat-value">$${stats.peak} /MWh</span>
                                     </div>
                                     <div class="stat">
-                                        <span class="stat-label">Lowest</span>
-                                        <span class="stat-value">$${stats.min} /MWh</span>
+                                        <span class="stat-label">Lowest Avg</span>
+                                        <span class="stat-value">$${stats.lowest} /MWh</span>
                                     </div>
                                 </div>
                             </div>
                             <div class="canvas-wrapper">
                                 <canvas id="chart-${region.code}"></canvas>
                             </div>
+                            ${createPriceEventsTable(events)}
                         </div>
                     `;
                 }).join('');
 
-                // Create charts after DOM is updated
                 setTimeout(() => {
                     regions.forEach(region => {
                         const regionData = allData[region.code];
@@ -556,33 +669,17 @@
                     <div class="chart-container">
                         <div style="padding: 40px; text-align: center;">
                             <h3 style="color: #dc2626; margin-bottom: 16px;">⚠️ Unable to Load Data</h3>
-                            <p style="color: #666; margin-bottom: 12px; font-weight: 600;">${error.message}</p>
+                            <p style="color: #666; margin-bottom: 12px;">${error.message}</p>
                             <div style="background: #fef3c7; border-left: 3px solid #f59e0b; padding: 16px; margin: 20px 0; text-align: left;">
-                                <p style="color: #92400e; font-size: 0.875rem; margin-bottom: 8px;">
-                                    <strong>Note:</strong> OpenElectricity API does not support direct browser requests (CORS).
-                                </p>
                                 <p style="color: #92400e; font-size: 0.875rem;">
-                                    You must run the proxy server to access the data.
+                                    This dashboard fetches real AEMO settlement data via the proxy server.
+                                    Please ensure the server is running and try refreshing the page.
                                 </p>
                             </div>
-                            <p style="color: #999; font-size: 0.875rem; text-align: left;">
-                                <strong>Setup Steps:</strong>
-                                <br>1. Make sure you have Node.js installed
-                                <br>2. Set your API key: <code style="background: #f3f4f6; padding: 2px 6px;">export OPENELECTRICITY_API_KEY=oe_PFGca8AxN7eCvf6Q6M5Rnk</code>
-                                <br>3. Run: <code style="background: #f3f4f6; padding: 2px 6px;">npm install</code>
-                                <br>4. Start server: <code style="background: #f3f4f6; padding: 2px 6px;">npm start</code>
-                                <br>5. Refresh this page
-                            </p>
-                            <p style="color: #999; font-size: 0.875rem; margin-top: 16px;">
-                                Don't have an API key? 
-                                <a href="https://platform.openelectricity.org.au" target="_blank" style="color: #2563eb;">
-                                    Register at OpenElectricity
-                                </a>
-                            </p>
                         </div>
                     </div>
                 `;
-                updateDataSourceNotice('✗ Failed to load data. Proxy server required (see instructions above).');
+                updateDataSourceNotice('✗ Failed to load data.');
             }
         }
 
@@ -594,12 +691,10 @@
         }
 
         function updateCharts() {
-            // Clear cache when changing time range
             cachedRealData = null;
             renderCharts();
         }
 
-        // Initial load
         renderCharts();
     </script>
 </body>
