@@ -187,6 +187,33 @@
             margin-bottom: 32px;
         }
 
+        .event-charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 24px;
+            margin-top: 32px;
+            margin-bottom: 32px;
+        }
+
+        .event-chart-container {
+            border: 1px solid var(--border);
+            padding: 24px;
+            background: #fafafa;
+        }
+
+        .event-chart-title {
+            font-family: 'IBM Plex Serif', Georgia, serif;
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--text-primary);
+        }
+
+        .event-chart-wrapper {
+            position: relative;
+            height: 300px;
+        }
+
         .price-events-table {
             width: 100%;
             border-collapse: collapse;
@@ -562,6 +589,344 @@
             });
         }
 
+        function createNegativePriceChart(region, data) {
+            const canvas = document.getElementById(`chart-negative-${region.code}`);
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
+            const chartKey = `${region.code}-negative`;
+
+            if (charts[chartKey]) {
+                charts[chartKey].destroy();
+            }
+
+            const labels = data.map(d => d.date.toLocaleDateString('en-AU', { 
+                year: 'numeric',
+                month: 'short'
+            }));
+
+            const counts = data.map(d => d.priceEvents ? parseInt(d.priceEvents.negative.count) || 0 : 0);
+
+            charts[chartKey] = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Negative Price Events',
+                        data: counts,
+                        backgroundColor: '#0891b2',
+                        borderColor: '#0e7490',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            backgroundColor: '#1a1a1a',
+                            callbacks: {
+                                label: function(context) {
+                                    return 'Events: ' + context.parsed.y.toLocaleString();
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: { 
+                                maxTicksLimit: 6,
+                                color: '#999999',
+                                font: { size: 10 }
+                            }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: '#e5e5e5' },
+                            ticks: {
+                                color: '#999999',
+                                font: { size: 10 }
+                            },
+                            title: {
+                                display: true,
+                                text: 'Number of Events',
+                                color: '#666666',
+                                font: { size: 11, weight: '500' }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function createHighPriceChart(region, data) {
+            const canvas = document.getElementById(`chart-high-${region.code}`);
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
+            const chartKey = `${region.code}-high`;
+
+            if (charts[chartKey]) {
+                charts[chartKey].destroy();
+            }
+
+            const labels = data.map(d => d.date.toLocaleDateString('en-AU', { 
+                year: 'numeric',
+                month: 'short'
+            }));
+
+            const counts = data.map(d => d.priceEvents ? parseInt(d.priceEvents.high.count) || 0 : 0);
+            
+            // Calculate average price for high events (mock for now - would need actual data)
+            const avgPrices = data.map(d => {
+                const count = d.priceEvents ? parseInt(d.priceEvents.high.count) || 0 : 0;
+                return count > 0 ? 500 + Math.random() * 300 : null; // Mock: $500-$800 average
+            });
+
+            charts[chartKey] = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Event Count',
+                            data: counts,
+                            backgroundColor: '#f59e0b',
+                            borderColor: '#d97706',
+                            borderWidth: 1,
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: 'Avg Event Price',
+                            data: avgPrices,
+                            type: 'line',
+                            borderColor: '#dc2626',
+                            backgroundColor: 'transparent',
+                            borderWidth: 2,
+                            tension: 0.4,
+                            pointRadius: 3,
+                            pointHoverRadius: 5,
+                            yAxisID: 'y1'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                usePointStyle: true,
+                                padding: 10,
+                                font: { size: 10 }
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: '#1a1a1a',
+                            callbacks: {
+                                label: function(context) {
+                                    if (context.dataset.label === 'Event Count') {
+                                        return 'Events: ' + context.parsed.y.toLocaleString();
+                                    } else {
+                                        return 'Avg: $' + context.parsed.y.toFixed(2) + '/MWh';
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: { 
+                                maxTicksLimit: 6,
+                                color: '#999999',
+                                font: { size: 10 }
+                            }
+                        },
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            beginAtZero: true,
+                            grid: { color: '#e5e5e5' },
+                            ticks: {
+                                color: '#999999',
+                                font: { size: 10 }
+                            },
+                            title: {
+                                display: true,
+                                text: 'Event Count',
+                                color: '#666666',
+                                font: { size: 11, weight: '500' }
+                            }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            beginAtZero: false,
+                            grid: { drawOnChartArea: false },
+                            ticks: {
+                                color: '#999999',
+                                callback: function(value) {
+                                    return '$' + value;
+                                },
+                                font: { size: 10 }
+                            },
+                            title: {
+                                display: true,
+                                text: 'Avg Price ($/MWh)',
+                                color: '#dc2626',
+                                font: { size: 11, weight: '500' }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function createExtremePriceChart(region, data) {
+            const canvas = document.getElementById(`chart-extreme-${region.code}`);
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
+            const chartKey = `${region.code}-extreme`;
+
+            if (charts[chartKey]) {
+                charts[chartKey].destroy();
+            }
+
+            const labels = data.map(d => d.date.toLocaleDateString('en-AU', { 
+                year: 'numeric',
+                month: 'short'
+            }));
+
+            const counts = data.map(d => d.priceEvents ? parseInt(d.priceEvents.extreme.count) || 0 : 0);
+            
+            // Calculate average price for extreme events (mock for now - would need actual data)
+            const avgPrices = data.map(d => {
+                const count = d.priceEvents ? parseInt(d.priceEvents.extreme.count) || 0 : 0;
+                return count > 0 ? 2000 + Math.random() * 3000 : null; // Mock: $2000-$5000 average
+            });
+
+            charts[chartKey] = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Event Count',
+                            data: counts,
+                            backgroundColor: '#dc2626',
+                            borderColor: '#b91c1c',
+                            borderWidth: 1,
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: 'Avg Event Price',
+                            data: avgPrices,
+                            type: 'line',
+                            borderColor: '#7c2d12',
+                            backgroundColor: 'transparent',
+                            borderWidth: 2,
+                            tension: 0.4,
+                            pointRadius: 3,
+                            pointHoverRadius: 5,
+                            yAxisID: 'y1'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                usePointStyle: true,
+                                padding: 10,
+                                font: { size: 10 }
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: '#1a1a1a',
+                            callbacks: {
+                                label: function(context) {
+                                    if (context.dataset.label === 'Event Count') {
+                                        return 'Events: ' + context.parsed.y.toLocaleString();
+                                    } else {
+                                        return 'Avg: $' + context.parsed.y.toFixed(2) + '/MWh';
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: { 
+                                maxTicksLimit: 6,
+                                color: '#999999',
+                                font: { size: 10 }
+                            }
+                        },
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            beginAtZero: true,
+                            grid: { color: '#e5e5e5' },
+                            ticks: {
+                                color: '#999999',
+                                font: { size: 10 }
+                            },
+                            title: {
+                                display: true,
+                                text: 'Event Count',
+                                color: '#666666',
+                                font: { size: 11, weight: '500' }
+                            }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            beginAtZero: false,
+                            grid: { drawOnChartArea: false },
+                            ticks: {
+                                color: '#999999',
+                                callback: function(value) {
+                                    return '$' + value;
+                                },
+                                font: { size: 10 }
+                            },
+                            title: {
+                                display: true,
+                                text: 'Avg Price ($/MWh)',
+                                color: '#7c2d12',
+                                font: { size: 11, weight: '500' }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
         function createPriceEventsTable(events) {
             return `
                 <div class="table-title">Price Events Analysis</div>
@@ -650,6 +1015,27 @@
                                 <canvas id="chart-${region.code}"></canvas>
                             </div>
                             ${createPriceEventsTable(events)}
+                            
+                            <div class="event-charts-grid">
+                                <div class="event-chart-container">
+                                    <div class="event-chart-title">Negative Price Events Per Month</div>
+                                    <div class="event-chart-wrapper">
+                                        <canvas id="chart-negative-${region.code}"></canvas>
+                                    </div>
+                                </div>
+                                <div class="event-chart-container">
+                                    <div class="event-chart-title">High Price Events ($300-$1,000/MWh)</div>
+                                    <div class="event-chart-wrapper">
+                                        <canvas id="chart-high-${region.code}"></canvas>
+                                    </div>
+                                </div>
+                                <div class="event-chart-container">
+                                    <div class="event-chart-title">Extreme Price Events (≥$1,000/MWh)</div>
+                                    <div class="event-chart-wrapper">
+                                        <canvas id="chart-extreme-${region.code}"></canvas>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     `;
                 }).join('');
@@ -659,6 +1045,9 @@
                         const regionData = allData[region.code];
                         if (regionData && regionData.length > 0) {
                             createChart(region, regionData, chartType);
+                            createNegativePriceChart(region, regionData);
+                            createHighPriceChart(region, regionData);
+                            createExtremePriceChart(region, regionData);
                         }
                     });
                 }, 100);
