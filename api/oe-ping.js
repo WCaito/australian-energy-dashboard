@@ -1,13 +1,19 @@
 /**
  * oe-ping.js
- * Simple auth/connectivity check against /v4/facilities with redirect follow.
+ * Simple auth/connectivity check against /v4/facilities with redirect follow (http + https).
  */
+const http = require('http');
 const https = require('https');
+
 const OE_BASE = process.env.OPENELECTRICITY_API_URL || 'https://api.openelectricity.org.au/v4';
+
+function requestByProtocol(u, options, onResponse) {
+  return (u.protocol === 'http:' ? http : https).request(u, options, onResponse);
+}
 
 function followGet(url, headers, maxRedirects = 3) {
   return new Promise((resolve, reject) => {
-    const req = https.request(url, { method: 'GET', headers }, (res) => {
+    const req = requestByProtocol(url, { method: 'GET', headers }, (res) => {
       const status = res.statusCode;
       const location = res.headers.location;
       const requestId = res.headers['x-request-id'] || res.headers['X-Request-ID'];
@@ -15,9 +21,16 @@ function followGet(url, headers, maxRedirects = 3) {
 
       res.on('data', (c) => (body += c));
       res.on('end', async () => {
-        // Redirect? Follow it (301/302/303/307/308)
+        // Follow 3xx with Location (301/302/303/307/308)
         if ([301, 302, 303, 307, 308].includes(status) && location && maxRedirects > 0) {
-          const nextUrl = new URL(location, url);
+          // Resolve relative -> absolute
+          let nextUrl = new URL(location, url);
+
+          // Optional hardening: if the redirect downgrades to http, upgrade to https if same host supports it.
+          if (nextUrl.protocol === 'http:' && url.hostname === nextUrl.hostname) {
+            nextUrl = new URL(nextUrl.toString().replace(/^http:/, 'https:'));
+          }
+
           console.log(`[oe-ping] redirect ${status} → ${nextUrl.toString()}`);
           try {
             const next = await followGet(nextUrl, headers, maxRedirects - 1);
@@ -27,7 +40,13 @@ function followGet(url, headers, maxRedirects = 3) {
           }
         }
 
-        resolve({ status, requestId, body, headers: res.headers, url: url.toString() });
+        resolve({
+          status,
+          requestId,
+          body,
+          headers: res.headers,
+          url: url.toString()
+        });
       });
     });
 
@@ -51,7 +70,7 @@ module.exports = async (req, res) => {
     const headers = {
       'Authorization': `Bearer ${API_KEY}`,
       'Accept': 'application/json',
-      'User-Agent': 'aed-ping/1.1'
+      'User-Agent': 'aed-ping/1.2'
     };
 
     const up = await followGet(url, headers);
@@ -61,7 +80,6 @@ module.exports = async (req, res) => {
         ok: true,
         status: up.status,
         requestId: up.requestId,
-        // small peek so we know we reached the real endpoint
         sample: up.body ? up.body.slice(0, 200) : ''
       });
     }
@@ -69,7 +87,6 @@ module.exports = async (req, res) => {
       ok: false,
       status: up.status,
       requestId: up.requestId,
-      // often empty for 3xx, but include it anyway
       bodySnippet: up.body ? up.body.slice(0, 400) : '',
       finalUrl: up.url
     });
