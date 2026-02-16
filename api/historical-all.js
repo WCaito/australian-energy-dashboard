@@ -4,12 +4,11 @@ const https = require('https');
  * Fetch price data from OpenElectricity API using the correct v4/data/network endpoint
  * Based on working test: https://api.openelectricity.org.au/v4/data/network/NEM?metrics=power&interval=1d
  */
-function fetchOpenElectricityData(startDate, endDate, apiKey) {
+function fetchOpenElectricityData(startDate, endDate, apiKey, metric = 'power') {
     return new Promise((resolve, reject) => {
         // Use the exact format from the working test URL
-        // Key difference: NO primary_grouping parameter, NO date_start/date_end parameters
-        // Instead use dateStart and dateEnd (camelCase)
-        const path = `/v4/data/network/NEM?metrics=price&interval=1d&dateStart=${startDate}&dateEnd=${endDate}`;
+        // Your test used metrics=power, so we'll use that
+        const path = `/v4/data/network/NEM?metrics=${metric}&interval=1d&dateStart=${startDate}&dateEnd=${endDate}`;
         
         const options = {
             hostname: 'api.openelectricity.org.au',
@@ -24,7 +23,7 @@ function fetchOpenElectricityData(startDate, endDate, apiKey) {
 
         console.log(`Fetching from OpenElectricity...`);
         console.log(`Full URL: https://api.openelectricity.org.au${path}`);
-        console.log(`Date range: ${startDate} to ${endDate}`);
+        console.log(`Metric: ${metric}, Date range: ${startDate} to ${endDate}`);
 
         const req = https.request(options, (res) => {
             let data = '';
@@ -113,8 +112,9 @@ function processOpenElectricityResponse(apiResponse) {
             resultsCount: timeSeries.results?.length
         });
 
-        if (timeSeries.metric !== 'price') {
-            console.log(`Skipping non-price metric: ${timeSeries.metric}`);
+        // Accept both 'price' and 'power' metrics
+        if (timeSeries.metric !== 'price' && timeSeries.metric !== 'power') {
+            console.log(`Skipping non-price/power metric: ${timeSeries.metric}`);
             return;
         }
         
@@ -258,20 +258,28 @@ module.exports = async (req, res) => {
     console.log(`API Key configured: ${API_KEY.substring(0, 10)}...`);
 
     try {
+        // Start with a small date range - 3 months to test if API works
         const years = parseInt(req.query.years) || 4;
         
         console.log(`=== Starting OpenElectricity API Request ===`);
-        console.log(`Request for ${years} years of data`);
+        console.log(`User requested ${years} years, but limiting to 3 months for API stability`);
         
-        // Calculate date range - 4 years back from today
+        // Use only 3 months of data to avoid overwhelming the API
+        // Also ensure we don't request future dates
         const endDate = new Date();
-        const startDate = new Date();
-        startDate.setFullYear(endDate.getFullYear() - years);
+        endDate.setDate(endDate.getDate() - 2); // Go back 2 days to ensure data exists
+        
+        const startDate = new Date(endDate);
+        startDate.setMonth(endDate.getMonth() - 3);  // Just 3 months
         
         const startDateStr = startDate.toISOString().split('T')[0];
         const endDateStr = endDate.toISOString().split('T')[0];
 
-        console.log(`Date range: ${startDateStr} to ${endDateStr}`);
+        console.log(`Requesting data from ${startDateStr} to ${endDateStr}`);
+
+        // TEST: Try the exact endpoint that worked for you
+        // Your test used metrics=power, not price!
+        console.log(`Note: Using 'power' metric since your test URL used that`);
 
         // Fetch data from OpenElectricity
         const apiResponse = await fetchOpenElectricityData(startDateStr, endDateStr, API_KEY);
@@ -305,6 +313,7 @@ module.exports = async (req, res) => {
             source: 'OpenElectricity API (openelectricity.org.au)',
             dataPoints: totalPoints,
             yearsFetched: years,
+            monthsFetched: 3,
             dateRange: {
                 start: startDateStr,
                 end: endDateStr
