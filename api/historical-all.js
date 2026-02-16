@@ -1,13 +1,15 @@
 const https = require('https');
 
 /**
- * Fetch price data from OpenElectricity API using /v4/data/network endpoint
- * This endpoint returns time series data with network_region grouping
+ * Fetch price data from OpenElectricity API using the correct v4/data/network endpoint
+ * Based on working test: https://api.openelectricity.org.au/v4/data/network/NEM?metrics=power&interval=1d
  */
 function fetchOpenElectricityData(startDate, endDate, apiKey) {
     return new Promise((resolve, reject) => {
-        // Use the /v4/data/network endpoint with price metric
-        const path = `/v4/data/network/NEM?metrics=price&interval=1d&primary_grouping=network_region&date_start=${startDate}&date_end=${endDate}`;
+        // Use the exact format from the working test URL
+        // Key difference: NO primary_grouping parameter, NO date_start/date_end parameters
+        // Instead use dateStart and dateEnd (camelCase)
+        const path = `/v4/data/network/NEM?metrics=price&interval=1d&dateStart=${startDate}&dateEnd=${endDate}`;
         
         const options = {
             hostname: 'api.openelectricity.org.au',
@@ -20,13 +22,15 @@ function fetchOpenElectricityData(startDate, endDate, apiKey) {
             }
         };
 
-        console.log(`Fetching from OpenElectricity: ${startDate} to ${endDate}`);
-        console.log(`URL: https://api.openelectricity.org.au${path}`);
+        console.log(`Fetching from OpenElectricity...`);
+        console.log(`Full URL: https://api.openelectricity.org.au${path}`);
+        console.log(`Date range: ${startDate} to ${endDate}`);
 
         const req = https.request(options, (res) => {
             let data = '';
 
             console.log(`Response status: ${res.statusCode}`);
+            console.log(`Response headers:`, JSON.stringify(res.headers));
 
             res.on('data', (chunk) => {
                 data += chunk;
@@ -35,17 +39,25 @@ function fetchOpenElectricityData(startDate, endDate, apiKey) {
             res.on('end', () => {
                 try {
                     if (res.statusCode !== 200) {
-                        console.error(`Error response (${res.statusCode}): ${data.substring(0, 500)}`);
-                        reject(new Error(`HTTP ${res.statusCode}: ${data}`));
+                        console.error(`Error response (${res.statusCode}):`);
+                        console.error(data.substring(0, 1000));
+                        reject(new Error(`HTTP ${res.statusCode}: ${data.substring(0, 200)}`));
                         return;
                     }
 
                     const jsonData = JSON.parse(data);
                     console.log(`Successfully fetched data`);
-                    console.log(`Response structure:`, JSON.stringify(jsonData).substring(0, 300));
+                    console.log(`Response keys:`, Object.keys(jsonData));
+                    if (jsonData.data) {
+                        console.log(`Data array length:`, jsonData.data.length);
+                        if (jsonData.data[0]) {
+                            console.log(`First data item keys:`, Object.keys(jsonData.data[0]));
+                        }
+                    }
                     resolve(jsonData);
                 } catch (error) {
                     console.error(`Parse error:`, error);
+                    console.error(`Data received:`, data.substring(0, 500));
                     reject(error);
                 }
             });
@@ -58,7 +70,7 @@ function fetchOpenElectricityData(startDate, endDate, apiKey) {
 
         req.setTimeout(25000, () => {
             req.destroy();
-            reject(new Error('Request timeout'));
+            reject(new Error('Request timeout after 25 seconds'));
         });
 
         req.end();
@@ -66,14 +78,20 @@ function fetchOpenElectricityData(startDate, endDate, apiKey) {
 }
 
 /**
- * Process OpenElectricity daily data into monthly aggregates with price event analysis
- * Updated to handle the v4/data/network response structure
+ * Process OpenElectricity response
+ * The data structure should match the power endpoint structure
  */
 function processOpenElectricityResponse(apiResponse) {
     console.log('Processing OpenElectricity response...');
     
-    if (!apiResponse || !apiResponse.success || !apiResponse.data) {
-        console.error('Invalid API response structure');
+    if (!apiResponse || !apiResponse.success) {
+        console.error('API response indicates failure or missing success field');
+        console.error('Response:', JSON.stringify(apiResponse).substring(0, 500));
+        return {};
+    }
+
+    if (!apiResponse.data || !Array.isArray(apiResponse.data)) {
+        console.error('Missing or invalid data array in response');
         return {};
     }
 
@@ -85,22 +103,52 @@ function processOpenElectricityResponse(apiResponse) {
         allData[region] = {};
     });
 
-    // The data array contains TimeSeries objects with results
-    apiResponse.data.forEach(timeSeries => {
-        if (timeSeries.metric !== 'price') return;
+    console.log(`Processing ${apiResponse.data.length} data items...`);
+
+    // Process each TimeSeries object
+    apiResponse.data.forEach((timeSeries, index) => {
+        console.log(`Processing TimeSeries ${index}:`, {
+            metric: timeSeries.metric,
+            unit: timeSeries.unit,
+            resultsCount: timeSeries.results?.length
+        });
+
+        if (timeSeries.metric !== 'price') {
+            console.log(`Skipping non-price metric: ${timeSeries.metric}`);
+            return;
+        }
         
+        if (!timeSeries.results || !Array.isArray(timeSeries.results)) {
+            console.log(`No results array in timeSeries`);
+            return;
+        }
+
         // Each result represents a network_region
-        timeSeries.results.forEach(result => {
+        timeSeries.results.forEach((result, resultIndex) => {
             const region = result.id; // e.g., "NSW1"
             
-            if (!regions.includes(region)) return;
+            console.log(`Processing result ${resultIndex} for region: ${region}`);
+            
+            if (!regions.includes(region)) {
+                console.log(`Skipping unknown region: ${region}`);
+                return;
+            }
+
+            if (!result.history || !Array.isArray(result.history)) {
+                console.log(`No history array for region ${region}`);
+                return;
+            }
+
+            console.log(`Processing ${result.history.length} history items for ${region}`);
             
             // Process history array (time series data points)
-            result.history.forEach(dataPoint => {
+            result.history.forEach((dataPoint, dpIndex) => {
                 const date = new Date(dataPoint.interval);
                 const price = dataPoint.value;
 
-                if (price === null || price === undefined) return;
+                if (price === null || price === undefined) {
+                    return;
+                }
 
                 // Group by month
                 const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -139,7 +187,7 @@ function processOpenElectricityResponse(apiResponse) {
     // Calculate monthly statistics
     const result = {};
     regions.forEach(region => {
-        result[region] = Object.values(allData[region])
+        const monthlyData = Object.values(allData[region])
             .filter(monthData => monthData.prices.length > 0)
             .map(monthData => {
                 const avgPrice = monthData.prices.reduce((a, b) => a + b, 0) / monthData.prices.length;
@@ -179,10 +227,12 @@ function processOpenElectricityResponse(apiResponse) {
                 };
             })
             .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        result[region] = monthlyData;
+        console.log(`Region ${region}: ${monthlyData.length} months of data`);
     });
 
     console.log('Processing complete');
-    console.log('Sample result:', JSON.stringify(result['NSW1']?.slice(0, 2)));
     return result;
 }
 
@@ -205,11 +255,13 @@ module.exports = async (req, res) => {
         });
     }
 
+    console.log(`API Key configured: ${API_KEY.substring(0, 10)}...`);
+
     try {
         const years = parseInt(req.query.years) || 4;
         
+        console.log(`=== Starting OpenElectricity API Request ===`);
         console.log(`Request for ${years} years of data`);
-        console.log(`Starting data fetch from OpenElectricity /v4/data/network endpoint...`);
         
         // Calculate date range - 4 years back from today
         const endDate = new Date();
@@ -230,12 +282,20 @@ module.exports = async (req, res) => {
         // Count total data points
         const totalPoints = Object.values(allData).reduce((sum, data) => sum + data.length, 0);
         
-        console.log(`Successfully processed ${totalPoints} months of data`);
+        console.log(`=== Request Complete ===`);
+        console.log(`Successfully processed ${totalPoints} months of data across all regions`);
         
         if (totalPoints === 0) {
+            console.error('No data points after processing!');
             return res.status(404).json({
                 error: 'No data available',
-                message: 'OpenElectricity returned no data for the requested period'
+                message: 'OpenElectricity API returned data but processing yielded no results',
+                debug: {
+                    apiResponseSuccess: apiResponse?.success,
+                    apiDataLength: apiResponse?.data?.length,
+                    startDate: startDateStr,
+                    endDate: endDateStr
+                }
             });
         }
         
@@ -250,15 +310,18 @@ module.exports = async (req, res) => {
                 end: endDateStr
             },
             endpoint: '/v4/data/network/NEM',
-            note: 'Daily interval data from OpenElectricity aggregated into monthly statistics with price event analysis'
+            note: 'Daily interval data from OpenElectricity aggregated into monthly statistics with comprehensive price event analysis'
         });
 
     } catch (error) {
+        console.error('=== ERROR ===');
         console.error('Error in historical-all:', error);
+        console.error('Stack:', error.stack);
         return res.status(500).json({
             error: 'Failed to fetch data from OpenElectricity',
             message: error.message,
-            hint: 'Check that your API key has access to the /v4/data/network endpoints. Endpoint used: /v4/data/network/NEM'
+            endpoint: '/v4/data/network/NEM',
+            hint: 'Check Vercel logs for detailed error information. Ensure API key has access to the v4 data endpoints.'
         });
     }
 };
