@@ -1,14 +1,21 @@
 const https = require('https');
 
 /**
- * Fetch price data from OpenElectricity API using the correct v4/data/network endpoint
- * Based on working test: https://api.openelectricity.org.au/v4/data/network/NEM?metrics=power&interval=1d
+ * Fetch price data from OpenElectricity API v4
+ * Correct endpoint: /v4/data/network/{network_code}
+ * Using metrics=price (not power) for actual price data
  */
-function fetchOpenElectricityData(startDate, endDate, apiKey, metric = 'power') {
+function fetchOpenElectricityData(startDate, endDate, apiKey) {
     return new Promise((resolve, reject) => {
-        // Use the exact format from the working test URL
-        // Your test used metrics=power, so we'll use that
-        const path = `/v4/data/network/NEM?metrics=${metric}&interval=1d&dateStart=${startDate}&dateEnd=${endDate}`;
+        // Correct v4 endpoint structure
+        const params = new URLSearchParams({
+            metrics: 'price',  // Use 'price' metric for electricity prices
+            interval: '1d',     // Daily aggregation
+            dateStart: startDate,
+            dateEnd: endDate
+        });
+        
+        const path = `/v4/data/network/NEM?${params.toString()}`;
         
         const options = {
             hostname: 'api.openelectricity.org.au',
@@ -21,15 +28,14 @@ function fetchOpenElectricityData(startDate, endDate, apiKey, metric = 'power') 
             }
         };
 
-        console.log(`Fetching from OpenElectricity...`);
+        console.log(`Fetching from OpenElectricity API v4...`);
         console.log(`Full URL: https://api.openelectricity.org.au${path}`);
-        console.log(`Metric: ${metric}, Date range: ${startDate} to ${endDate}`);
+        console.log(`Date range: ${startDate} to ${endDate}`);
 
         const req = https.request(options, (res) => {
             let data = '';
 
             console.log(`Response status: ${res.statusCode}`);
-            console.log(`Response headers:`, JSON.stringify(res.headers));
 
             res.on('data', (chunk) => {
                 data += chunk;
@@ -46,13 +52,14 @@ function fetchOpenElectricityData(startDate, endDate, apiKey, metric = 'power') 
 
                     const jsonData = JSON.parse(data);
                     console.log(`Successfully fetched data`);
-                    console.log(`Response keys:`, Object.keys(jsonData));
-                    if (jsonData.data) {
-                        console.log(`Data array length:`, jsonData.data.length);
-                        if (jsonData.data[0]) {
-                            console.log(`First data item keys:`, Object.keys(jsonData.data[0]));
-                        }
+                    console.log(`Response success:`, jsonData.success);
+                    
+                    if (jsonData.data && jsonData.data.length > 0) {
+                        console.log(`Data items:`, jsonData.data.length);
+                        console.log(`First item metric:`, jsonData.data[0].metric);
+                        console.log(`First item results count:`, jsonData.data[0].results?.length);
                     }
+                    
                     resolve(jsonData);
                 } catch (error) {
                     console.error(`Parse error:`, error);
@@ -67,9 +74,9 @@ function fetchOpenElectricityData(startDate, endDate, apiKey, metric = 'power') 
             reject(error);
         });
 
-        req.setTimeout(25000, () => {
+        req.setTimeout(30000, () => {
             req.destroy();
-            reject(new Error('Request timeout after 25 seconds'));
+            reject(new Error('Request timeout after 30 seconds'));
         });
 
         req.end();
@@ -77,15 +84,17 @@ function fetchOpenElectricityData(startDate, endDate, apiKey, metric = 'power') 
 }
 
 /**
- * Process OpenElectricity response
- * The data structure should match the power endpoint structure
+ * Process OpenElectricity API v4 response
+ * Structure: { success: bool, data: [TimeSeries], version: string, created_at: string }
+ * TimeSeries: { metric, unit, interval, results: [Result] }
+ * Result: { id: region_code, history: [DataPoint] }
+ * DataPoint: { interval: ISO timestamp, value: number }
  */
 function processOpenElectricityResponse(apiResponse) {
     console.log('Processing OpenElectricity response...');
     
     if (!apiResponse || !apiResponse.success) {
-        console.error('API response indicates failure or missing success field');
-        console.error('Response:', JSON.stringify(apiResponse).substring(0, 500));
+        console.error('API response indicates failure');
         return {};
     }
 
@@ -97,24 +106,25 @@ function processOpenElectricityResponse(apiResponse) {
     const regions = ['NSW1', 'VIC1', 'QLD1', 'SA1', 'TAS1'];
     const allData = {};
 
-    // Initialize data structures
+    // Initialize data structures for each region
     regions.forEach(region => {
         allData[region] = {};
     });
 
-    console.log(`Processing ${apiResponse.data.length} data items...`);
+    console.log(`Processing ${apiResponse.data.length} time series objects...`);
 
     // Process each TimeSeries object
     apiResponse.data.forEach((timeSeries, index) => {
-        console.log(`Processing TimeSeries ${index}:`, {
+        console.log(`TimeSeries ${index}:`, {
             metric: timeSeries.metric,
             unit: timeSeries.unit,
+            interval: timeSeries.interval,
             resultsCount: timeSeries.results?.length
         });
 
-        // Accept both 'price' and 'power' metrics
-        if (timeSeries.metric !== 'price' && timeSeries.metric !== 'power') {
-            console.log(`Skipping non-price/power metric: ${timeSeries.metric}`);
+        // Only process price data
+        if (timeSeries.metric !== 'price') {
+            console.log(`Skipping non-price metric: ${timeSeries.metric}`);
             return;
         }
         
@@ -123,11 +133,9 @@ function processOpenElectricityResponse(apiResponse) {
             return;
         }
 
-        // Each result represents a network_region
-        timeSeries.results.forEach((result, resultIndex) => {
+        // Process each region's data
+        timeSeries.results.forEach((result) => {
             const region = result.id; // e.g., "NSW1"
-            
-            console.log(`Processing result ${resultIndex} for region: ${region}`);
             
             if (!regions.includes(region)) {
                 console.log(`Skipping unknown region: ${region}`);
@@ -139,10 +147,10 @@ function processOpenElectricityResponse(apiResponse) {
                 return;
             }
 
-            console.log(`Processing ${result.history.length} history items for ${region}`);
+            console.log(`Processing ${result.history.length} data points for ${region}`);
             
-            // Process history array (time series data points)
-            result.history.forEach((dataPoint, dpIndex) => {
+            // Process each data point in the history
+            result.history.forEach((dataPoint) => {
                 const date = new Date(dataPoint.interval);
                 const price = dataPoint.value;
 
@@ -150,7 +158,7 @@ function processOpenElectricityResponse(apiResponse) {
                     return;
                 }
 
-                // Group by month
+                // Group by month (YYYY-MM format)
                 const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 
                 if (!allData[region][monthKey]) {
@@ -167,10 +175,10 @@ function processOpenElectricityResponse(apiResponse) {
                     };
                 }
 
-                // Add price to array
+                // Add price to array for this month
                 allData[region][monthKey].prices.push(price);
 
-                // Count price events
+                // Count price events based on thresholds
                 if (price < 0) {
                     allData[region][monthKey].negativeCount++;
                 } else if (price >= 300 && price < 1000) {
@@ -184,7 +192,7 @@ function processOpenElectricityResponse(apiResponse) {
         });
     });
 
-    // Calculate monthly statistics
+    // Calculate monthly statistics for each region
     const result = {};
     regions.forEach(region => {
         const monthlyData = Object.values(allData[region])
@@ -236,7 +244,11 @@ function processOpenElectricityResponse(apiResponse) {
     return result;
 }
 
+/**
+ * Serverless function handler
+ */
 module.exports = async (req, res) => {
+    // CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -258,37 +270,31 @@ module.exports = async (req, res) => {
     console.log(`API Key configured: ${API_KEY.substring(0, 10)}...`);
 
     try {
-        // Start with a small date range - 3 months to test if API works
         const years = parseInt(req.query.years) || 4;
         
         console.log(`=== Starting OpenElectricity API Request ===`);
-        console.log(`User requested ${years} years, but limiting to 3 months for API stability`);
+        console.log(`Requesting ${years} years of historical data`);
         
-        // Use only 3 months of data to avoid overwhelming the API
-        // Also ensure we don't request future dates
+        // Calculate date range
         const endDate = new Date();
-        endDate.setDate(endDate.getDate() - 2); // Go back 2 days to ensure data exists
+        endDate.setDate(endDate.getDate() - 2); // Go back 2 days to ensure data availability
         
         const startDate = new Date(endDate);
-        startDate.setMonth(endDate.getMonth() - 3);  // Just 3 months
+        startDate.setFullYear(endDate.getFullYear() - years);
         
         const startDateStr = startDate.toISOString().split('T')[0];
         const endDateStr = endDate.toISOString().split('T')[0];
 
         console.log(`Requesting data from ${startDateStr} to ${endDateStr}`);
 
-        // TEST: Try the exact endpoint that worked for you
-        // Your test used metrics=power, not price!
-        console.log(`Note: Using 'power' metric since your test URL used that`);
-
-        // Fetch data from OpenElectricity
+        // Fetch data from OpenElectricity API v4
         const apiResponse = await fetchOpenElectricityData(startDateStr, endDateStr, API_KEY);
         
-        // Process into monthly aggregates
-        const allData = processOpenElectricityResponse(apiResponse);
+        // Process data into monthly aggregates
+        const processedData = processOpenElectricityResponse(apiResponse);
 
         // Count total data points
-        const totalPoints = Object.values(allData).reduce((sum, data) => sum + data.length, 0);
+        const totalPoints = Object.values(processedData).reduce((sum, data) => sum + data.length, 0);
         
         console.log(`=== Request Complete ===`);
         console.log(`Successfully processed ${totalPoints} months of data across all regions`);
@@ -308,18 +314,17 @@ module.exports = async (req, res) => {
         }
         
         return res.status(200).json({
-            data: allData,
+            data: processedData,
             fetchedAt: new Date().toISOString(),
             source: 'OpenElectricity API (openelectricity.org.au)',
             dataPoints: totalPoints,
             yearsFetched: years,
-            monthsFetched: 3,
             dateRange: {
                 start: startDateStr,
                 end: endDateStr
             },
             endpoint: '/v4/data/network/NEM',
-            note: 'Daily interval data from OpenElectricity aggregated into monthly statistics with comprehensive price event analysis'
+            note: 'Daily interval price data from OpenElectricity API aggregated into monthly statistics with price event analysis'
         });
 
     } catch (error) {
@@ -327,10 +332,10 @@ module.exports = async (req, res) => {
         console.error('Error in historical-all:', error);
         console.error('Stack:', error.stack);
         return res.status(500).json({
-            error: 'Failed to fetch data from OpenElectricity',
+            error: 'Failed to fetch data from OpenElectricity API',
             message: error.message,
             endpoint: '/v4/data/network/NEM',
-            hint: 'Check Vercel logs for detailed error information. Ensure API key has access to the v4 data endpoints.'
+            hint: 'Check that your API key is valid and has access to the OpenElectricity v4 data endpoints. Register at platform.openelectricity.org.au'
         });
     }
 };
