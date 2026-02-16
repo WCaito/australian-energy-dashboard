@@ -1,83 +1,86 @@
 /**
- * historical-all.js
+ * historical-all.js (v2)
  *
  * Serverless handler to fetch & aggregate NEM price data from OpenElectricity v4.
  * - Uses Bearer auth against the v4 base URL.
- * - Hits GET /v4/data/network/NEM with snake_case params and primary_grouping=network_region.
+ * - Calls GET /v4/data/network/NEM with snake_case params.
+ * - Sends ISO 8601 date-time strings (T00:00:00Z) per API shape.
+ * - Attempts grouped by region first; on upstream 5xx, retries ungrouped once.
  * - Aggregates daily prices into monthly stats + price-event counts for NSW1, VIC1, QLD1, SA1, TAS1.
  *
  * ENV REQUIRED:
  *   OPENELECTRICITY_API_KEY = <your_api_key>
- *
  * OPTIONAL:
- *   OPENELECTRICITY_API_URL = <override_base_url>   // defaults to https://api.openelectricity.org.au/v4
+ *   OPENELECTRICITY_API_URL = <override_base_url> (defaults to https://api.openelectricity.org.au/v4)
  */
 
 const https = require('https');
 
-// Default to production v4 API; can be overridden for testing.
 const OE_BASE = process.env.OPENELECTRICITY_API_URL || 'https://api.openelectricity.org.au/v4';
-
-// Regions of interest for NEM
 const REGIONS = ['NSW1', 'VIC1', 'QLD1', 'SA1', 'TAS1'];
 
-// ---- Upstream fetch ----
-function fetchOpenElectricityData(startDate, endDate, apiKey) {
+function isoMidnightUTC(d) {
+  const dt = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+  return dt.toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+function requestUpstream(url, headers) {
   return new Promise((resolve, reject) => {
-    // v4 expects snake_case params and supports grouping by network_region
-    const params = new URLSearchParams({
-      metrics: 'price',
-      interval: '1d',
-      date_start: startDate,
-      date_end: endDate,
-      primary_grouping: 'network_region'
-    });
-
-    const url = new URL(`${OE_BASE}/data/network/NEM?${params.toString()}`);
-    const options = {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,   // Bearer auth as per API overview
-        'Accept': 'application/json',
-        'User-Agent': 'aed-dashboard/1.0'
-      }
-    };
-
-    console.log(`[OE] GET ${url.toString()}`);
-
-    const req = https.request(url, options, (res) => {
+    const req = https.request(url, { method: 'GET', headers }, (res) => {
       const status = res.statusCode;
       const requestId = res.headers['x-request-id'] || res.headers['X-Request-ID'];
       let body = '';
-
-      res.on('data', (chunk) => { body += chunk; });
+      res.on('data', (c) => body += c);
       res.on('end', () => {
-        console.log(`[OE] status=${status}${requestId ? ` request-id=${requestId}` : ''}`);
         if (status !== 200) {
-          console.error(`[OE] upstream error (first 800 chars): ${body.slice(0, 800)}`);
-          return reject({ type: 'UPSTREAM', status, requestId, bodySnippet: body.slice(0, 800) });
+          return reject({ type: 'UPSTREAM', status, requestId, bodySnippet: body.slice(0, 800), url: url.toString() });
         }
-        try {
-          const json = JSON.parse(body);
-          resolve({ json, requestId });
-        } catch (err) {
-          console.error('[OE] JSON parse error:', err);
-          console.error('[OE] Raw body (first 500):', body.slice(0, 500));
-          reject({ type: 'PARSE', error: err, bodySnippet: body.slice(0, 800) });
-        }
+        try { resolve({ json: JSON.parse(body), requestId }); }
+        catch (e) { reject({ type: 'PARSE', error: e, bodySnippet: body.slice(0, 800), url: url.toString() }); }
       });
     });
-
-    req.on('error', (err) => { console.error('[OE] Network error:', err); reject({ type: 'NETWORK', error: err }); });
-    req.setTimeout(30000, () => { req.destroy(); reject({ type: 'TIMEOUT', error: new Error('Upstream request timed out after 30s') }); });
+    req.on('error', (e) => reject({ type: 'NETWORK', error: e, url: url.toString() }));
+    req.setTimeout(30000, () => { req.destroy(); reject({ type: 'TIMEOUT', error: new Error('timeout'), url: url.toString() }); });
     req.end();
   });
 }
 
-// ---- Response processing ----
+async function fetchOpenElectricityData(startISO, endISO, apiKey) {
+  const headers = {
+    'Authorization': `Bearer ${apiKey}`,
+    'Accept': 'application/json',
+    'User-Agent': 'aed-dashboard/1.2'
+  };
+
+  async function doRequest(grouped) {
+    const params = new URLSearchParams({
+      metrics: 'price',
+      interval: '1d',
+      date_start: startISO,
+      date_end: endISO
+    });
+    if (grouped) params.set('primary_grouping', 'network_region');
+
+    const url = new URL(`${OE_BASE}/data/network/NEM?${params.toString()}`);
+    console.log(`[OE] GET ${url.toString()}`);
+    return requestUpstream(url, headers);
+  }
+
+  try {
+    // First attempt: grouped
+    return await doRequest(true);
+  } catch (e) {
+    if (e && e.type === 'UPSTREAM' && e.status >= 500) {
+      console.warn('[OE] 5xx with grouping; retrying ungrouped…', e);
+      return await doRequest(false);
+    }
+    throw e;
+  }
+}
+
 function processResponse(apiResponse) {
   const { json } = apiResponse || {};
-  if (!json || json.success === false) { console.error('[PROC] Missing/unsuccessful upstream JSON'); return {}; }
+  if (!json || json.success === false) { console.error('[PROC] Unsuccessful upstream JSON'); return {}; }
   if (!Array.isArray(json.data)) { console.error('[PROC] json.data is not an array'); return {}; }
 
   const buckets = Object.fromEntries(REGIONS.map(r => [r, {}]));
@@ -89,25 +92,16 @@ function processResponse(apiResponse) {
     series.results.forEach((r) => {
       const region = r?.columns?.network_region || r?.name || r?.id;
       if (!region || !REGIONS.includes(region)) return;
-
       const points = Array.isArray(r.data) ? r.data : (Array.isArray(r.history) ? r.history : []);
       if (!points.length) return;
 
       points.forEach((pt) => {
-        const ts = pt.timestamp || pt.interval;
-        const val = pt.value;
-        if (val === null || val === undefined) return;
-
+        const ts = pt.timestamp || pt.interval; const val = pt.value; if (val == null) return;
         const d = new Date(ts);
-        const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-
+        const monthKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
         if (!buckets[region][monthKey]) {
-          buckets[region][monthKey] = {
-            year: d.getFullYear(), month: d.getMonth() + 1, date: new Date(d.getFullYear(), d.getMonth(), 1).toISOString(),
-            prices: [], negativeCount: 0, highCount: 0, extremeCount: 0, highPrices: [], extremePrices: []
-          };
+          buckets[region][monthKey] = { year: d.getUTCFullYear(), month: d.getUTCMonth()+1, date: new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString(), prices: [], negativeCount: 0, highCount: 0, extremeCount: 0, highPrices: [], extremePrices: [] };
         }
-
         const m = buckets[region][monthKey];
         m.prices.push(val);
         if (val < 0) m.negativeCount++;
@@ -141,8 +135,8 @@ function processResponse(apiResponse) {
   return out;
 }
 
-// ---- Serverless entrypoint ----
 module.exports = async (req, res) => {
+  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
@@ -150,40 +144,27 @@ module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   const API_KEY = process.env.OPENELECTRICITY_API_KEY;
-  if (!API_KEY) { console.error('[BOOT] OPENELECTRICITY_API_KEY not set'); return res.status(500).json({ error: 'API key not configured', message: 'Set OPENELECTRICITY_API_KEY in your environment' }); }
+  if (!API_KEY) return res.status(500).json({ error: 'API key not configured', message: 'Set OPENELECTRICITY_API_KEY' });
 
   try {
-    let years = parseInt(req.query.years, 10);
-    if (!Number.isFinite(years) || years <= 0) years = 4;
-    if (years > 5) years = 5;
+    let years = parseInt(req.query.years, 10); if (!Number.isFinite(years) || years <= 0) years = 4; if (years > 5) years = 5;
+    const end = new Date(); end.setUTCDate(end.getUTCDate() - 2);
+    const start = new Date(end); start.setUTCFullYear(end.getUTCFullYear() - years);
+    const dateStartISO = isoMidnightUTC(start); const dateEndISO = isoMidnightUTC(end);
 
-    const endDate = new Date(); endDate.setDate(endDate.getDate() - 2);
-    const startDate = new Date(endDate); startDate.setFullYear(endDate.getFullYear() - years);
+    console.log(`[BOOT] years=${years} range=${dateStartISO}→${dateEndISO}`);
 
-    const date_end   = endDate.toISOString().slice(0, 10);
-    const date_start = startDate.toISOString().slice(0, 10);
-
-    console.log(`[BOOT] years=${years} range=${date_start}→${date_end}`);
-
-    const apiResponse = await fetchOpenElectricityData(date_start, date_end, API_KEY);
+    const apiResponse = await fetchOpenElectricityData(dateStartISO, dateEndISO, API_KEY);
     const processed = processResponse(apiResponse);
-
     const monthsTotal = Object.values(processed).reduce((s, arr) => s + (Array.isArray(arr) ? arr.length : 0), 0);
-    if (!monthsTotal) { return res.status(404).json({ error: 'No data available after processing', debug: { date_start, date_end } }); }
+    if (!monthsTotal) return res.status(404).json({ error: 'No data after processing', dateStartISO, dateEndISO });
 
-    return res.status(200).json({
-      data: processed,
-      fetchedAt: new Date().toISOString(),
-      source: 'OpenElectricity v4',
-      yearsFetched: years,
-      dateRange: { start: date_start, end: date_end }
-    });
-
+    return res.status(200).json({ data: processed, fetchedAt: new Date().toISOString(), source: 'OpenElectricity v4', yearsFetched: years, dateRange: { start: dateStartISO, end: dateEndISO } });
   } catch (e) {
-    if (e && e.type === 'UPSTREAM') return res.status(e.status || 502).json({ error: 'Upstream API error', upstreamStatus: e.status, upstreamRequestId: e.requestId, upstreamBodySnippet: e.bodySnippet });
-    if (e && e.type === 'PARSE') return res.status(502).json({ error: 'Failed to parse upstream response', upstreamBodySnippet: e.bodySnippet });
-    if (e && e.type === 'TIMEOUT') return res.status(504).json({ error: 'Upstream timeout' });
-    if (e && e.type === 'NETWORK') return res.status(502).json({ error: 'Network error to upstream', message: e.error?.message });
+    if (e && e.type === 'UPSTREAM') return res.status(e.status || 502).json({ error: 'Upstream API error', upstreamStatus: e.status, upstreamRequestId: e.requestId, upstreamBodySnippet: e.bodySnippet, url: e.url });
+    if (e && e.type === 'PARSE') return res.status(502).json({ error: 'Failed to parse upstream response', upstreamBodySnippet: e.bodySnippet, url: e.url });
+    if (e && e.type === 'TIMEOUT') return res.status(504).json({ error: 'Upstream timeout', url: e.url });
+    if (e && e.type === 'NETWORK') return res.status(502).json({ error: 'Network error to upstream', message: e.error?.message, url: e.url });
     console.error('[FATAL]', e);
     return res.status(500).json({ error: 'Unhandled server error', message: e?.message || String(e) });
   }
