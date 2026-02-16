@@ -1,160 +1,131 @@
-// historical-all.js
-// Serverless handler to fetch and aggregate NEM price data from OpenElectricity v4
+/**
+ * historical-all.js
+ *
+ * Serverless handler to fetch & aggregate NEM price data from OpenElectricity v4.
+ * - Uses Bearer auth against the v4 base URL.
+ * - Hits GET /v4/data/network/NEM with snake_case params and primary_grouping=network_region.
+ * - Aggregates daily prices into monthly stats + price-event counts for NSW1, VIC1, QLD1, SA1, TAS1.
+ *
+ * ENV REQUIRED:
+ *   OPENELECTRICITY_API_KEY = <your_api_key>
+ *
+ * OPTIONAL:
+ *   OPENELECTRICITY_API_URL = <override_base_url>   // defaults to https://api.openelectricity.org.au/v4
+ */
 
 const https = require('https');
 
-/**
- * Fetch price data from OpenElectricity API v4
- * Docs: Base URL + Bearer auth (v4)  → https://docs.openelectricity.org.au/api-reference/overview
- *       Network time-series endpoint  → /v4/data/network/{network_code}
- *       Use snake_case params: date_start, date_end; add primary_grouping=network_region
- */
+// Default to production v4 API; can be overridden for testing.
+const OE_BASE = process.env.OPENELECTRICITY_API_URL || 'https://api.openelectricity.org.au/v4';
+
+// Regions of interest for NEM
+const REGIONS = ['NSW1', 'VIC1', 'QLD1', 'SA1', 'TAS1'];
+
+// ---- Upstream fetch ----
 function fetchOpenElectricityData(startDate, endDate, apiKey) {
   return new Promise((resolve, reject) => {
-    // ✅ FIX: snake_case parameter names + region grouping so we get NSW1/VIC1/etc
+    // v4 expects snake_case params and supports grouping by network_region
     const params = new URLSearchParams({
       metrics: 'price',
       interval: '1d',
-      date_start: startDate,         // was dateStart
-      date_end: endDate,             // was dateEnd
+      date_start: startDate,
+      date_end: endDate,
       primary_grouping: 'network_region'
     });
 
-    const path = `/v4/data/network/NEM?${params.toString()}`;
+    const url = new URL(`${OE_BASE}/data/network/NEM?${params.toString()}`);
     const options = {
-      hostname: 'api.openelectricity.org.au',
-      port: 443,
-      path,
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,   // ✅ Bearer token per API overview
-        'Accept': 'application/json'
+        'Authorization': `Bearer ${apiKey}`,   // Bearer auth as per API overview
+        'Accept': 'application/json',
+        'User-Agent': 'oe-key-checker/1.0'
       }
     };
 
-    console.log(`Fetching OpenElectricity: https://${options.hostname}${path}`);
-    console.log(`Date range: ${startDate} → ${endDate}`);
+    console.log(`[OE] GET ${url.toString()}`);
 
-    const req = https.request(options, (res) => {
-      let data = '';
-
-      console.log(`Response status: ${res.statusCode}`);
+    const req = https.request(url, options, (res) => {
+      const status = res.statusCode;
       const requestId = res.headers['x-request-id'] || res.headers['X-Request-ID'];
-      if (requestId) console.log(`request-id: ${requestId}`);
+      let body = '';
 
-      res.on('data', (chunk) => { data += chunk; });
+      res.on('data', (chunk) => { body += chunk; });
       res.on('end', () => {
+        console.log(`[OE] status=${status}${requestId ? ` request-id=${requestId}` : ''}`);
+        if (status !== 200) {
+          console.error(`[OE] upstream error (first 800 chars): ${body.slice(0, 800)}`);
+          return reject({
+            type: 'UPSTREAM',
+            status,
+            requestId,
+            bodySnippet: body.slice(0, 800)
+          });
+        }
         try {
-          if (res.statusCode !== 200) {
-            console.error(`Error body (truncated): ${data.slice(0, 800)}`);
-            return reject(new Error(`HTTP ${res.statusCode}: ${data.slice(0, 300)}`));
-          }
-          const json = JSON.parse(data);
-          return resolve(json);
+          const json = JSON.parse(body);
+          resolve({ json, requestId });
         } catch (err) {
-          console.error('JSON parse error:', err);
-          console.error('Data (truncated):', data.slice(0, 500));
-          return reject(err);
+          console.error('[OE] JSON parse error:', err);
+          console.error('[OE] Raw body (first 500):', body.slice(0, 500));
+          reject({ type: 'PARSE', error: err, bodySnippet: body.slice(0, 800) });
         }
       });
     });
 
     req.on('error', (err) => {
-      console.error('Request error:', err);
-      reject(err);
+      console.error('[OE] Network error:', err);
+      reject({ type: 'NETWORK', error: err });
     });
 
     req.setTimeout(30000, () => {
       req.destroy();
-      reject(new Error('Request timeout after 30s'));
+      reject({ type: 'TIMEOUT', error: new Error('Upstream request timed out after 30s') });
     });
 
     req.end();
   });
 }
 
-/**
- * Process v4 time-series response into monthly stats and price event counts.
- * v4 response shape (relevant bits):
- *   data: [
- *     {
- *       metric: "price",
- *       results: [
- *         {
- *           name: "NSW1" | ...            // or columns.network_region
- *           columns?: { network_region?: "NSW1" }
- *           data: [ { timestamp: ISO8601, value: number }, ... ]
- *         },
- *         ...
- *       ]
- *     }
- *   ]
- * See SDK/client patterns that use `timestamp`/`value` data points. [4](https://learn.microsoft.com/en-us/power-platform/admin/programmability-authentication)[5](https://github.com/opennem/openelectricity-typescript/blob/main/README.md)
- */
-function processOpenElectricityResponse(apiResponse) {
-  console.log('Processing response...');
-  if (!apiResponse || apiResponse.success === false) {
-    console.error('API response indicates failure or is empty');
+// ---- Response processing ----
+// v4 series points are typically in result.data[] with { timestamp, value }.
+// The region label is usually r.name or r.columns.network_region (when grouped by network_region).
+function processResponse(apiResponse) {
+  const { json } = apiResponse || {};
+  if (!json || json.success === false) {
+    console.error('[PROC] Missing/unsuccessful upstream JSON');
     return {};
   }
-  if (!apiResponse.data || !Array.isArray(apiResponse.data)) {
-    console.error('Missing or invalid `data` array in response');
+  if (!Array.isArray(json.data)) {
+    console.error('[PROC] json.data is not an array');
     return {};
   }
 
-  const regions = ['NSW1', 'VIC1', 'QLD1', 'SA1', 'TAS1'];
-  const allData = {};
-  regions.forEach((r) => { allData[r] = {}; });
+  // Prepare region buckets keyed by month
+  const buckets = Object.fromEntries(REGIONS.map(r => [r, {}]));
 
-  console.log(`Top-level series count: ${apiResponse.data.length}`);
+  json.data.forEach((series, idx) => {
+    if ((series.metric || '').toLowerCase() !== 'price') return;
+    if (!Array.isArray(series.results)) return;
 
-  // Loop each time series (expecting metric: "price")
-  apiResponse.data.forEach((series, idx) => {
-    console.log(`Series[${idx}] metric=${series.metric} interval=${series.interval} results=${series.results?.length ?? 0}`);
+    series.results.forEach((r) => {
+      const region = r?.columns?.network_region || r?.name || r?.id;
+      if (!region || !REGIONS.includes(region)) return;
 
-    if (series.metric && series.metric.toLowerCase() !== 'price') {
-      console.log(`Skipping non-price metric: ${series.metric}`);
-      return;
-    }
-    if (!Array.isArray(series.results)) {
-      console.log('No results[] on series; skipping');
-      return;
-    }
-
-    // Each result is one region (when grouped by network_region)
-    series.results.forEach((result) => {
-      const region =
-        result?.columns?.network_region ||
-        result?.name ||
-        result?.id;
-
-      if (!region || !regions.includes(region)) {
-        console.log(`Skipping unknown region label: ${region}`);
-        return;
-      }
-
-      // ✅ v4 uses result.data[] with { timestamp, value } (fallback to history[] if present)
-      const points = Array.isArray(result.data)
-        ? result.data
-        : (Array.isArray(result.history) ? result.history : []);
-
-      if (!points.length) {
-        console.log(`No data points for region ${region}`);
-        return;
-      }
-
-      console.log(`Processing ${points.length} points for ${region}`);
+      const points = Array.isArray(r.data) ? r.data
+                   : (Array.isArray(r.history) ? r.history : []);
+      if (!points.length) return;
 
       points.forEach((pt) => {
-        const ts = pt.timestamp || pt.interval;     // tolerate either field
+        const ts = pt.timestamp || pt.interval;
         const val = pt.value;
         if (val === null || val === undefined) return;
 
         const d = new Date(ts);
         const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 
-        if (!allData[region][monthKey]) {
-          allData[region][monthKey] = {
+        if (!buckets[region][monthKey]) {
+          buckets[region][monthKey] = {
             year: d.getFullYear(),
             month: d.getMonth() + 1,
             date: new Date(d.getFullYear(), d.getMonth(), 1).toISOString(),
@@ -167,147 +138,134 @@ function processOpenElectricityResponse(apiResponse) {
           };
         }
 
-        // Track prices + event thresholds
-        allData[region][monthKey].prices.push(val);
+        const m = buckets[region][monthKey];
+        m.prices.push(val);
+
         if (val < 0) {
-          allData[region][monthKey].negativeCount++;
+          m.negativeCount++;
         } else if (val >= 300 && val < 1000) {
-          allData[region][monthKey].highCount++;
-          allData[region][monthKey].highPrices.push(val);
+          m.highCount++;
+          m.highPrices.push(val);
         } else if (val >= 1000) {
-          allData[region][monthKey].extremeCount++;
-          allData[region][monthKey].extremePrices.push(val);
+          m.extremeCount++;
+          m.extremePrices.push(val);
         }
       });
     });
   });
 
-  // Aggregate per-month stats per region
-  const result = {};
-  regions.forEach((region) => {
-    const monthly = Object.values(allData[region])
-      .filter((m) => m.prices.length > 0)
-      .map((m) => {
-        const avg = m.prices.reduce((a, b) => a + b, 0) / m.prices.length;
-        const max = Math.max(...m.prices);
-        const totalN = m.prices.length;
+  // Aggregate
+  const out = {};
+  REGIONS.forEach((region) => {
+    const months = Object.values(buckets[region]).map(m => {
+      const avg = m.prices.reduce((a, b) => a + b, 0) / m.prices.length;
+      const max = Math.max(...m.prices);
+      const n   = m.prices.length;
 
-        const avgHigh = m.highPrices.length
-          ? m.highPrices.reduce((a, b) => a + b, 0) / m.highPrices.length
-          : 0;
-        const avgExtreme = m.extremePrices.length
-          ? m.extremePrices.reduce((a, b) => a + b, 0) / m.extremePrices.length
-          : 0;
+      const avgHigh    = m.highPrices.length ? (m.highPrices.reduce((a, b) => a + b, 0) / m.highPrices.length) : 0;
+      const avgExtreme = m.extremePrices.length ? (m.extremePrices.reduce((a, b) => a + b, 0) / m.extremePrices.length) : 0;
 
-        return {
-          year: m.year,
-          month: m.month,
-          date: m.date,
-          averagePrice: parseFloat(avg.toFixed(2)),
-          maxPrice: parseFloat(max.toFixed(2)),
-          priceEvents: {
-            negative: {
-              count: m.negativeCount,
-              percentage: ((m.negativeCount / totalN) * 100).toFixed(2)
-            },
-            high: {
-              count: m.highCount,
-              percentage: ((m.highCount / totalN) * 100).toFixed(2),
-              avgPrice: parseFloat(avgHigh.toFixed(2))
-            },
-            extreme: {
-              count: m.extremeCount,
-              percentage: ((m.extremeCount / totalN) * 100).toFixed(2),
-              avgPrice: parseFloat(avgExtreme.toFixed(2))
-            }
-          }
-        };
-      })
-      .sort((a, b) => new Date(a.date) - new Date(b.date));
+      return {
+        year: m.year,
+        month: m.month,
+        date: m.date,
+        averagePrice: Number(avg.toFixed(2)),
+        maxPrice: Number(max.toFixed(2)),
+        priceEvents: {
+          negative: { count: m.negativeCount, percentage: ((m.negativeCount / n) * 100).toFixed(2) },
+          high:     { count: m.highCount,     percentage: ((m.highCount     / n) * 100).toFixed(2), avgPrice: Number(avgHigh.toFixed(2)) },
+          extreme:  { count: m.extremeCount,  percentage: ((m.extremeCount  / n) * 100).toFixed(2), avgPrice: Number(avgExtreme.toFixed(2)) }
+        }
+      };
+    }).sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    result[region] = monthly;
-    console.log(`Region ${region}: ${monthly.length} months`);
+    out[region] = months;
   });
 
-  console.log('Processing complete.');
-  return result;
+  return out;
 }
 
-/**
- * Serverless function handler
- */
+// ---- Serverless entrypoint ----
 module.exports = async (req, res) => {
-  // ✅ CORS for browser calls
+  // CORS for browser use
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   res.setHeader('Vary', 'Origin');
+  if (req.method === 'OPTIONS') return res.status(200).end();
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
-  const API_KEY = process.env.OPENELECTRICITY_API_KEY; // Set this in your host
+  const API_KEY = process.env.OPENELECTRICITY_API_KEY;
   if (!API_KEY) {
-    console.error('OPENELECTRICITY_API_KEY not set');
+    console.error('[BOOT] OPENELECTRICITY_API_KEY not set');
     return res.status(500).json({
       error: 'API key not configured',
-      message: 'OPENELECTRICITY_API_KEY environment variable not set'
+      message: 'Set OPENELECTRICITY_API_KEY in your environment'
     });
   }
-  console.log(`API key configured (prefix): ${API_KEY.substring(0, 10)}...`);
 
   try {
-    const years = Number.parseInt(req.query.years, 10) || 4;
-    // To avoid partial data on the latest day, go back 2 days
+    // years guardrail (1..5), defaults to 4
+    let years = parseInt(req.query.years, 10);
+    if (!Number.isFinite(years) || years <= 0) years = 4;
+    if (years > 5) years = 5;
+
+    // 2‑day buffer to avoid partial latest day
     const endDate = new Date();
     endDate.setDate(endDate.getDate() - 2);
+
     const startDate = new Date(endDate);
     startDate.setFullYear(endDate.getFullYear() - years);
 
-    const endDateStr = endDate.toISOString().slice(0, 10);
-    const startDateStr = startDate.toISOString().slice(0, 10);
+    const date_end   = endDate.toISOString().slice(0, 10);
+    const date_start = startDate.toISOString().slice(0, 10);
 
-    console.log(`Requesting ${years} years: ${startDateStr} → ${endDateStr}`);
+    console.log(`[BOOT] years=${years} range=${date_start}→${date_end}`);
 
-    const apiResponse = await fetchOpenElectricityData(startDateStr, endDateStr, API_KEY);
-    const processedData = processOpenElectricityResponse(apiResponse);
+    const apiResponse = await fetchOpenElectricityData(date_start, date_end, API_KEY);
+    const processed = processResponse(apiResponse);
 
-    const totalMonths = Object.values(processedData)
-      .reduce((sum, arr) => sum + (Array.isArray(arr) ? arr.length : 0), 0);
+    const monthsTotal = Object.values(processed)
+      .reduce((s, arr) => s + (Array.isArray(arr) ? arr.length : 0), 0);
 
-    if (totalMonths === 0) {
-      console.error('No data points after processing.');
+    if (!monthsTotal) {
       return res.status(404).json({
-        error: 'No data available',
-        message: 'OpenElectricity API returned data but processing yielded no results',
-        debug: {
-          apiResponseSuccess: apiResponse?.success,
-          apiDataLength: apiResponse?.data?.length,
-          startDate: startDateStr,
-          endDate: endDateStr
-        }
+        error: 'No data available after processing',
+        debug: { date_start, date_end }
       });
     }
 
     return res.status(200).json({
-      data: processedData,
+      data: processed,
       fetchedAt: new Date().toISOString(),
-      source: 'OpenElectricity API (openelectricity.org.au)',
-      dataPoints: totalMonths,
+      source: 'OpenElectricity v4',
       yearsFetched: years,
-      dateRange: { start: startDateStr, end: endDateStr },
-      endpoint: '/v4/data/network/NEM',
-      note: 'Daily interval price data aggregated by month with price event analysis'
+      dateRange: { start: date_start, end: date_end }
     });
-  } catch (err) {
-    console.error('=== ERROR ===');
-    console.error(err.stack || err);
-    return res.status(500).json({
-      error: 'Failed to fetch data from OpenElectricity API',
-      message: err.message,
-      endpoint: '/v4/data/network/NEM',
-      hint: 'Ensure your API key is valid and the v4 endpoint/params are correct'
-    });
+
+  } catch (e) {
+    // Normalize error payloads so the frontend sees *why* it failed
+    if (e && e.type === 'UPSTREAM') {
+      return res.status(e.status || 502).json({
+        error: 'Upstream API error',
+        upstreamStatus: e.status,
+        upstreamRequestId: e.requestId,
+        upstreamBodySnippet: e.bodySnippet
+      });
+    }
+    if (e && e.type === 'PARSE') {
+      return res.status(502).json({
+        error: 'Failed to parse upstream response',
+        upstreamBodySnippet: e.bodySnippet
+      });
+    }
+    if (e && e.type === 'TIMEOUT') {
+      return res.status(504).json({ error: 'Upstream timeout' });
+    }
+    if (e && e.type === 'NETWORK') {
+      return res.status(502).json({ error: 'Network error to upstream', message: e.error?.message });
+    }
+
+    console.error('[FATAL]', e);
+    return res.status(500).json({ error: 'Unhandled server error', message: e?.message || String(e) });
   }
 };
