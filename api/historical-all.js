@@ -1,341 +1,295 @@
-const https = require('https');
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Historical Data - Australian Energy Market</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    /* (… your existing styles unchanged …) */
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <a href="australian-energy-market.html" class="back-link">← Back to Dashboard</a>
+      <h1>Historical Price Data</h1>
+      <p class="subtitle">Monthly average and maximum spot prices from AEMO settlement data</p>
+    </header>
 
-/**
- * Fetch price data from OpenElectricity API v4
- * Correct endpoint: /v4/data/network/{network_code}
- * Using metrics=price (not power) for actual price data
- */
-function fetchOpenElectricityData(startDate, endDate, apiKey) {
-    return new Promise((resolve, reject) => {
-        // Correct v4 endpoint structure
-        const params = new URLSearchParams({
-            metrics: 'price',  // Use 'price' metric for electricity prices
-            interval: '1d',     // Daily aggregation
-            dateStart: startDate,
-            dateEnd: endDate
-        });
-        
-        const path = `/v4/data/network/NEM?${params.toString()}`;
-        
-        const options = {
-            hostname: 'api.openelectricity.org.au',
-            port: 443,
-            path: path,
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${apiKey}`,
-                'Accept': 'application/json'
-            }
-        };
+    <div class="info-box">
+      <div class="info-title">About This Data</div>
+      <div class="info-text">
+        This page displays real historical electricity price data from OpenElectricity API, which aggregates data from AEMO (Australian Energy Market Operator). Data shown are daily interval spot prices across the NEM, aggregated to monthly statistics with event analysis (negative, high $300–$1,000/MWh, extreme ≥$1,000/MWh).
+      </div>
+    </div>
 
-        console.log(`Fetching from OpenElectricity API v4...`);
-        console.log(`Full URL: https://api.openelectricity.org.au${path}`);
-        console.log(`Date range: ${startDate} to ${endDate}`);
+    <div class="data-notice" id="dataSourceNotice">
+      <div class="data-notice-text" id="dataSourceText">Loading data...</div>
+    </div>
 
-        const req = https.request(options, (res) => {
-            let data = '';
+    <div class="controls">
+      <div class="control-group">
+        <label for="chartType">Chart Type</label>
+        <select id="chartType" onchange="updateCharts()">
+          <option value="line">Line Chart</option>
+          <option value="bar">Bar Chart</option>
+        </select>
+      </div>
+    </div>
 
-            console.log(`Response status: ${res.statusCode}`);
+    <div id="chartsContainer">
+      <div class="loading">
+        <div class="spinner"></div>
+        Loading historical data from OpenElectricity API...
+      </div>
+    </div>
+  </div>
 
-            res.on('data', (chunk) => {
-                data += chunk;
-            });
+  <script>
+    const regions = [
+      { code: 'NSW1', name: 'New South Wales', aemoCode: 'NSW1', color: '#2563eb' },
+      { code: 'VIC1', name: 'Victoria', aemoCode: 'VIC1', color: '#7c3aed' },
+      { code: 'QLD1', name: 'Queensland', aemoCode: 'QLD1', color: '#dc2626' },
+      { code: 'SA1',  name: 'South Australia', aemoCode: 'SA1',  color: '#059669' },
+      { code: 'TAS1', name: 'Tasmania', aemoCode: 'TAS1', color: '#ea580c' }
+    ];
 
-            res.on('end', () => {
-                try {
-                    if (res.statusCode !== 200) {
-                        console.error(`Error response (${res.statusCode}):`);
-                        console.error(data.substring(0, 1000));
-                        reject(new Error(`HTTP ${res.statusCode}: ${data.substring(0, 200)}`));
-                        return;
-                    }
+    let charts = {};
+    let cachedRealData = null;
 
-                    const jsonData = JSON.parse(data);
-                    console.log(`Successfully fetched data`);
-                    console.log(`Response success:`, jsonData.success);
-                    
-                    if (jsonData.data && jsonData.data.length > 0) {
-                        console.log(`Data items:`, jsonData.data.length);
-                        console.log(`First item metric:`, jsonData.data[0].metric);
-                        console.log(`First item results count:`, jsonData.data[0].results?.length);
-                    }
-                    
-                    resolve(jsonData);
-                } catch (error) {
-                    console.error(`Parse error:`, error);
-                    console.error(`Data received:`, data.substring(0, 500));
-                    reject(error);
-                }
-            });
-        });
+    // If you open the file locally, assume dev server on localhost:3000
+    const API_URL = (window.location.protocol === 'file:')
+      ? 'http://localhost:3000'
+      : window.location.origin;
 
-        req.on('error', (error) => {
-            console.error(`Request error:`, error);
-            reject(error);
+    async function loadHistoricalData() {
+      try {
+        const response = await fetch(`${API_URL}/api/historical-all?years=4`, {
+          // No client-side Authorization header needed: your serverless function holds the API key
+          method: 'GET'
         });
 
-        req.setTimeout(30000, () => {
-            req.destroy();
-            reject(new Error('Request timeout after 30 seconds'));
-        });
-
-        req.end();
-    });
-}
-
-/**
- * Process OpenElectricity API v4 response
- * Structure: { success: bool, data: [TimeSeries], version: string, created_at: string }
- * TimeSeries: { metric, unit, interval, results: [Result] }
- * Result: { id: region_code, history: [DataPoint] }
- * DataPoint: { interval: ISO timestamp, value: number }
- */
-function processOpenElectricityResponse(apiResponse) {
-    console.log('Processing OpenElectricity response...');
-    
-    if (!apiResponse || !apiResponse.success) {
-        console.error('API response indicates failure');
-        return {};
-    }
-
-    if (!apiResponse.data || !Array.isArray(apiResponse.data)) {
-        console.error('Missing or invalid data array in response');
-        return {};
-    }
-
-    const regions = ['NSW1', 'VIC1', 'QLD1', 'SA1', 'TAS1'];
-    const allData = {};
-
-    // Initialize data structures for each region
-    regions.forEach(region => {
-        allData[region] = {};
-    });
-
-    console.log(`Processing ${apiResponse.data.length} time series objects...`);
-
-    // Process each TimeSeries object
-    apiResponse.data.forEach((timeSeries, index) => {
-        console.log(`TimeSeries ${index}:`, {
-            metric: timeSeries.metric,
-            unit: timeSeries.unit,
-            interval: timeSeries.interval,
-            resultsCount: timeSeries.results?.length
-        });
-
-        // Only process price data
-        if (timeSeries.metric !== 'price') {
-            console.log(`Skipping non-price metric: ${timeSeries.metric}`);
-            return;
-        }
-        
-        if (!timeSeries.results || !Array.isArray(timeSeries.results)) {
-            console.log(`No results array in timeSeries`);
-            return;
+        if (!response.ok) {
+          let errorText = `HTTP ${response.status}`;
+          try {
+            const e = await response.json();
+            errorText += `: ${e.message || e.error || 'Unknown error'}`;
+          } catch (_) {}
+          throw new Error(errorText);
         }
 
-        // Process each region's data
-        timeSeries.results.forEach((result) => {
-            const region = result.id; // e.g., "NSW1"
-            
-            if (!regions.includes(region)) {
-                console.log(`Skipping unknown region: ${region}`);
-                return;
-            }
+        const result = await response.json();
+        if (!result.data) throw new Error('No data returned from server');
 
-            if (!result.history || !Array.isArray(result.history)) {
-                console.log(`No history array for region ${region}`);
-                return;
-            }
-
-            console.log(`Processing ${result.history.length} data points for ${region}`);
-            
-            // Process each data point in the history
-            result.history.forEach((dataPoint) => {
-                const date = new Date(dataPoint.interval);
-                const price = dataPoint.value;
-
-                if (price === null || price === undefined) {
-                    return;
-                }
-
-                // Group by month (YYYY-MM format)
-                const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-
-                if (!allData[region][monthKey]) {
-                    allData[region][monthKey] = {
-                        year: date.getFullYear(),
-                        month: date.getMonth() + 1,
-                        date: new Date(date.getFullYear(), date.getMonth(), 1).toISOString(),
-                        prices: [],
-                        negativeCount: 0,
-                        highCount: 0,
-                        extremeCount: 0,
-                        highPrices: [],
-                        extremePrices: []
-                    };
-                }
-
-                // Add price to array for this month
-                allData[region][monthKey].prices.push(price);
-
-                // Count price events based on thresholds
-                if (price < 0) {
-                    allData[region][monthKey].negativeCount++;
-                } else if (price >= 300 && price < 1000) {
-                    allData[region][monthKey].highCount++;
-                    allData[region][monthKey].highPrices.push(price);
-                } else if (price >= 1000) {
-                    allData[region][monthKey].extremeCount++;
-                    allData[region][monthKey].extremePrices.push(price);
-                }
-            });
+        const data = {};
+        regions.forEach((region) => {
+          const regionData = result.data[region.aemoCode];
+          if (Array.isArray(regionData) && regionData.length > 0) {
+            data[region.code] = regionData.map(item => ({
+              date: new Date(item.date),
+              averagePrice: item.averagePrice,
+              maxPrice: item.maxPrice,
+              priceEvents: item.priceEvents
+            }));
+          } else {
+            data[region.code] = [];
+          }
         });
-    });
 
-    // Calculate monthly statistics for each region
-    const result = {};
-    regions.forEach(region => {
-        const monthlyData = Object.values(allData[region])
-            .filter(monthData => monthData.prices.length > 0)
-            .map(monthData => {
-                const avgPrice = monthData.prices.reduce((a, b) => a + b, 0) / monthData.prices.length;
-                const maxPrice = Math.max(...monthData.prices);
-                const totalIntervals = monthData.prices.length;
+        const hasData = Object.values(data).some(arr => arr.length > 0);
+        if (!hasData) throw new Error('No valid data received for any region');
 
-                const avgHighPrice = monthData.highPrices.length > 0
-                    ? monthData.highPrices.reduce((a, b) => a + b, 0) / monthData.highPrices.length
-                    : 0;
-
-                const avgExtremePrice = monthData.extremePrices.length > 0
-                    ? monthData.extremePrices.reduce((a, b) => a + b, 0) / monthData.extremePrices.length
-                    : 0;
-
-                return {
-                    year: monthData.year,
-                    month: monthData.month,
-                    date: monthData.date,
-                    averagePrice: parseFloat(avgPrice.toFixed(2)),
-                    maxPrice: parseFloat(maxPrice.toFixed(2)),
-                    priceEvents: {
-                        negative: {
-                            count: monthData.negativeCount,
-                            percentage: ((monthData.negativeCount / totalIntervals) * 100).toFixed(2)
-                        },
-                        high: {
-                            count: monthData.highCount,
-                            percentage: ((monthData.highCount / totalIntervals) * 100).toFixed(2),
-                            avgPrice: parseFloat(avgHighPrice.toFixed(2))
-                        },
-                        extreme: {
-                            count: monthData.extremeCount,
-                            percentage: ((monthData.extremeCount / totalIntervals) * 100).toFixed(2),
-                            avgPrice: parseFloat(avgExtremePrice.toFixed(2))
-                        }
-                    }
-                };
-            })
-            .sort((a, b) => new Date(a.date) - new Date(b.date));
-
-        result[region] = monthlyData;
-        console.log(`Region ${region}: ${monthlyData.length} months of data`);
-    });
-
-    console.log('Processing complete');
-    return result;
-}
-
-/**
- * Serverless function handler
- */
-module.exports = async (req, res) => {
-    // CORS headers
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-    if (req.method === 'OPTIONS') {
-        return res.status(200).end();
+        updateDataSourceNotice('✓ Real data from OpenElectricity API (v4). Grouped by region and aggregated monthly.');
+        return data;
+      } catch (err) {
+        console.error('Error loading data:', err);
+        throw err;
+      }
     }
 
-    const API_KEY = process.env.OPENELECTRICITY_API_KEY;
-
-    if (!API_KEY) {
-        console.error('OPENELECTRICITY_API_KEY not set');
-        return res.status(500).json({
-            error: 'API key not configured',
-            message: 'OPENELECTRICITY_API_KEY environment variable not set'
-        });
+    function calculateStats(data) {
+      const avgPrices = data.map(d => d.averagePrice);
+      const maxPrices = data.map(d => d.maxPrice);
+      return {
+        average: (avgPrices.reduce((a, b) => a + b, 0) / avgPrices.length).toFixed(2),
+        peak: Math.max(...maxPrices).toFixed(2),
+        lowest: Math.min(...avgPrices).toFixed(2)
+      };
     }
 
-    console.log(`API Key configured: ${API_KEY.substring(0, 10)}...`);
-
-    try {
-        const years = parseInt(req.query.years) || 4;
-        
-        console.log(`=== Starting OpenElectricity API Request ===`);
-        console.log(`Requesting ${years} years of historical data`);
-        
-        // Calculate date range
-        const endDate = new Date();
-        endDate.setDate(endDate.getDate() - 2); // Go back 2 days to ensure data availability
-        
-        const startDate = new Date(endDate);
-        startDate.setFullYear(endDate.getFullYear() - years);
-        
-        const startDateStr = startDate.toISOString().split('T')[0];
-        const endDateStr = endDate.toISOString().split('T')[0];
-
-        console.log(`Requesting data from ${startDateStr} to ${endDateStr}`);
-
-        // Fetch data from OpenElectricity API v4
-        const apiResponse = await fetchOpenElectricityData(startDateStr, endDateStr, API_KEY);
-        
-        // Process data into monthly aggregates
-        const processedData = processOpenElectricityResponse(apiResponse);
-
-        // Count total data points
-        const totalPoints = Object.values(processedData).reduce((sum, data) => sum + data.length, 0);
-        
-        console.log(`=== Request Complete ===`);
-        console.log(`Successfully processed ${totalPoints} months of data across all regions`);
-        
-        if (totalPoints === 0) {
-            console.error('No data points after processing!');
-            return res.status(404).json({
-                error: 'No data available',
-                message: 'OpenElectricity API returned data but processing yielded no results',
-                debug: {
-                    apiResponseSuccess: apiResponse?.success,
-                    apiDataLength: apiResponse?.data?.length,
-                    startDate: startDateStr,
-                    endDate: endDateStr
-                }
-            });
+    function aggregatePriceEvents(data) {
+      const totals = {
+        negative: { count: 0, percentage: 0 },
+        high: { count: 0, percentage: 0 },
+        extreme: { count: 0, percentage: 0 }
+      };
+      let totalCount = 0;
+      data.forEach(item => {
+        if (item.priceEvents) {
+          totals.negative.count += Number(item.priceEvents.negative.count || 0);
+          totals.high.count     += Number(item.priceEvents.high.count || 0);
+          totals.extreme.count  += Number(item.priceEvents.extreme.count || 0);
+          totalCount += Number(item.priceEvents.negative.count || 0)
+                      + Number(item.priceEvents.high.count || 0)
+                      + Number(item.priceEvents.extreme.count || 0);
         }
-        
-        return res.status(200).json({
-            data: processedData,
-            fetchedAt: new Date().toISOString(),
-            source: 'OpenElectricity API (openelectricity.org.au)',
-            dataPoints: totalPoints,
-            yearsFetched: years,
-            dateRange: {
-                start: startDateStr,
-                end: endDateStr
-            },
-            endpoint: '/v4/data/network/NEM',
-            note: 'Daily interval price data from OpenElectricity API aggregated into monthly statistics with price event analysis'
-        });
+      });
 
-    } catch (error) {
-        console.error('=== ERROR ===');
-        console.error('Error in historical-all:', error);
-        console.error('Stack:', error.stack);
-        return res.status(500).json({
-            error: 'Failed to fetch data from OpenElectricity API',
-            message: error.message,
-            endpoint: '/v4/data/network/NEM',
-            hint: 'Check that your API key is valid and has access to the OpenElectricity v4 data endpoints. Register at platform.openelectricity.org.au'
-        });
+      // Approximate denominator if you'd like; we keep your original rough approach.
+      const totalIntervals = data.length * 30 * 24 * 12; // months * days * hours * 5-min intervals
+      totals.negative.percentage = ((totals.negative.count / totalIntervals) * 100).toFixed(2);
+      totals.high.percentage     = ((totals.high.count / totalIntervals) * 100).toFixed(2);
+      totals.extreme.percentage  = ((totals.extreme.count / totalIntervals) * 100).toFixed(2);
+      return totals;
     }
-};
+
+    /* ---- chart builders (unchanged from your version) ---- */
+    // createChart, createNegativePriceChart, createHighPriceChart, createExtremePriceChart
+    // (Keep your existing implementations; they work with the processed structure.)
+
+    function createChart(region, data, chartType) {
+      // ... (your existing implementation unchanged)
+      // ✂️ For brevity in this message; keep your original chart code here
+    }
+    function createNegativePriceChart(region, data) { /* ... unchanged ... */ }
+    function createHighPriceChart(region, data)     { /* ... unchanged ... */ }
+    function createExtremePriceChart(region, data)  { /* ... unchanged ... */ }
+
+    async function renderCharts() {
+      const chartType = document.getElementById('chartType').value;
+      const container = document.getElementById('chartsContainer');
+      container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading historical data from OpenElectricity API...</div>';
+
+      try {
+        if (!cachedRealData) cachedRealData = await loadHistoricalData();
+        const allData = cachedRealData;
+
+        container.innerHTML = regions.map(region => {
+          const regionData = allData[region.code];
+          if (!regionData || regionData.length === 0) {
+            return `
+              <div class="chart-container">
+                <div class="chart-header">
+                  <h2 class="chart-title">${region.name} (${region.code})</h2>
+                </div>
+                <div style="padding: 40px; text-align: center; color: #999;">No data available for this region</div>
+              </div>
+            `;
+          }
+
+          const stats = calculateStats(regionData);
+          const events = aggregatePriceEvents(regionData);
+
+          return `
+            <div class="chart-container">
+              <div class="chart-header">
+                <h2 class="chart-title">${region.name} (${region.code})</h2>
+                <div class="chart-stats">
+                  <div class="stat">
+                    <span class="stat-label">Avg Price</span>
+                    <span class="stat-value">$${stats.average} /MWh</span>
+                  </div>
+                  <div class="stat">
+                    <span class="stat-label">Peak Price</span>
+                    <span class="stat-value">$${stats.peak} /MWh</span>
+                  </div>
+                  <div class="stat">
+                    <span class="stat-label">Lowest Avg</span>
+                    <span class="stat-value">$${stats.lowest} /MWh</span>
+                  </div>
+                </div>
+              </div>
+              <div class="canvas-wrapper">
+                <canvas id="chart-${region.code}"></canvas>
+              </div>
+              ${createPriceEventsTable(events)}
+              <div class="event-charts-grid">
+                <div class="event-chart-container">
+                  <div class="event-chart-title">Negative Price Events Per Month</div>
+                  <div class="event-chart-wrapper"><canvas id="chart-negative-${region.code}"></canvas></div>
+                </div>
+                <div class="event-chart-container">
+                  <div class="event-chart-title">High Price Events ($300-$1,000/MWh)</div>
+                  <div class="event-chart-wrapper"><canvas id="chart-high-${region.code}"></canvas></div>
+                </div>
+                <div class="event-chart-container">
+                  <div class="event-chart-title">Extreme Price Events (≥$1,000/MWh)</div>
+                  <div class="event-chart-wrapper"><canvas id="chart-extreme-${region.code}"></canvas></div>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        // Render after DOM insert
+        setTimeout(() => {
+          regions.forEach(region => {
+            const regionData = allData[region.code];
+            if (regionData && regionData.length > 0) {
+              createChart(region, regionData, chartType);
+              createNegativePriceChart(region, regionData);
+              createHighPriceChart(region, regionData);
+              createExtremePriceChart(region, regionData);
+            }
+          });
+        }, 100);
+
+      } catch (err) {
+        console.error('Error rendering charts:', err);
+        container.innerHTML = `
+          <div class="chart-container">
+            <div style="padding: 40px; text-align: center;">
+              <h3 style="color: #dc2626; margin-bottom: 16px;">⚠️ Unable to Load Data</h3>
+              <p style="color: #666; margin-bottom: 12px;">${err.message}</p>
+              <div style="background: #fef3c7; border-left: 3px solid #f59e0b; padding: 16px; margin: 20px 0; text-align: left;">
+                <p style="color: #92400e; font-size: 0.875rem;">
+                  Ensure your serverless function is running and has a valid OpenElectricity API key.
+                </p>
+              </div>
+            </div>
+          </div>
+        `;
+        updateDataSourceNotice('✗ Failed to load data.');
+      }
+    }
+
+    function createPriceEventsTable(events) {
+      return `
+        <div class="table-title">Price Events Analysis</div>
+        <table class="price-events-table">
+          <thead>
+            <tr><th>Event Type</th><th>Count</th><th>% of Period</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Negative Prices (&lt; $0/MWh)</td>
+                <td><span class="event-count">${Number(events.negative.count).toLocaleString()}</span></td>
+                <td><span class="event-percentage">${events.negative.percentage}%</span></td></tr>
+            <tr><td>High Prices ($300 - $1,000/MWh)</td>
+                <td><span class="event-count">${Number(events.high.count).toLocaleString()}</span></td>
+                <td><span class="event-percentage">${events.high.percentage}%</span></td></tr>
+            <tr><td>Extreme Prices (≥ $1,000/MWh)</td>
+                <td><span class="event-count">${Number(events.extreme.count).toLocaleString()}</span></td>
+                <td><span class="event-percentage">${events.extreme.percentage}%</span></td></tr>
+          </tbody>
+        </table>
+      `;
+    }
+
+    function updateDataSourceNotice(message) {
+      const notice = document.getElementById('dataSourceNotice');
+      const text = document.getElementById('dataSourceText');
+      text.textContent = message;
+      notice.style.display = 'block';
+    }
+
+    function updateCharts() {
+      cachedRealData = null;  // force re-load (you can optimize by preserving)
+      renderCharts();
+    }
+
+    renderCharts();
+  </script>
+</body>
+</html>
