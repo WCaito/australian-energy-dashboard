@@ -313,7 +313,7 @@
         <div class="info-box">
             <div class="info-title">About This Data</div>
             <div class="info-text">
-                This page displays real historical electricity price data sourced directly from AEMO (Australian Energy Market Operator). The data comes from actual 5-minute settlement prices across the National Electricity Market (NEM). Each month's data shows the average price calculated from all 5-minute intervals, the maximum price reached during that period, and a breakdown of price events including negative pricing, high pricing ($300-$1,000/MWh), and extreme pricing (≥$1,000/MWh) occurrences.
+                This page displays real historical electricity price data from OpenElectricity API, which aggregates data from AEMO (Australian Energy Market Operator) into a clean, accessible format. The data includes daily interval spot prices across the National Electricity Market (NEM) over the past 4 years. Each month's statistics show the average price calculated from all daily intervals, the maximum price reached during that period, and a comprehensive breakdown of price events including negative pricing, high pricing ($300-$1,000/MWh), and extreme pricing (≥$1,000/MWh) occurrences with their average prices.
             </div>
         </div>
 
@@ -681,10 +681,12 @@
 
             const counts = data.map(d => d.priceEvents ? parseInt(d.priceEvents.high.count) || 0 : 0);
             
-            // Calculate average price for high events (mock for now - would need actual data)
+            // Use actual average prices from API
             const avgPrices = data.map(d => {
-                const count = d.priceEvents ? parseInt(d.priceEvents.high.count) || 0 : 0;
-                return count > 0 ? 500 + Math.random() * 300 : null; // Mock: $500-$800 average
+                if (d.priceEvents && d.priceEvents.high.avgPrice && d.priceEvents.high.avgPrice > 0) {
+                    return d.priceEvents.high.avgPrice;
+                }
+                return null;
             });
 
             charts[chartKey] = new Chart(ctx, {
@@ -710,7 +712,8 @@
                             tension: 0.4,
                             pointRadius: 3,
                             pointHoverRadius: 5,
-                            yAxisID: 'y1'
+                            yAxisID: 'y1',
+                            spanGaps: true
                         }
                     ]
                 },
@@ -813,10 +816,12 @@
 
             const counts = data.map(d => d.priceEvents ? parseInt(d.priceEvents.extreme.count) || 0 : 0);
             
-            // Calculate average price for extreme events (mock for now - would need actual data)
+            // Use actual average prices from API
             const avgPrices = data.map(d => {
-                const count = d.priceEvents ? parseInt(d.priceEvents.extreme.count) || 0 : 0;
-                return count > 0 ? 2000 + Math.random() * 3000 : null; // Mock: $2000-$5000 average
+                if (d.priceEvents && d.priceEvents.extreme.avgPrice && d.priceEvents.extreme.avgPrice > 0) {
+                    return d.priceEvents.extreme.avgPrice;
+                }
+                return null;
             });
 
             charts[chartKey] = new Chart(ctx, {
@@ -842,7 +847,8 @@
                             tension: 0.4,
                             pointRadius: 3,
                             pointHoverRadius: 5,
-                            yAxisID: 'y1'
+                            yAxisID: 'y1',
+                            spanGaps: true
                         }
                     ]
                 },
@@ -968,7 +974,7 @@
             try {
                 if (!cachedRealData) {
                     cachedRealData = await loadHistoricalData();
-                    updateDataSourceNotice('✓ Real AEMO settlement data. Showing 6 months of 5-minute interval prices aggregated by month.');
+                    updateDataSourceNotice('✓ Real data from OpenElectricity API. Showing 4 years of daily interval prices aggregated by month with actual price event analysis.');
                 }
 
                 const allData = cachedRealData;
