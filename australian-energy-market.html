@@ -508,47 +508,47 @@
             const newsContainer = document.getElementById('news');
             
             try {
-                // Search for Australian energy market news from AFR and other sources
-                const response = await fetch('https://api.anthropic.com/v1/messages', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        model: 'claude-sonnet-4-20250514',
-                        max_tokens: 1000,
-                        tools: [{
-                            type: "web_search_20250305",
-                            name: "web_search"
-                        }],
-                        messages: [{
-                            role: 'user',
-                            content: 'Search for the latest Australian energy market news articles from sources like Australian Financial Review (AFR), AEMO, and other energy news sites. Find 6-8 recent articles about electricity prices, renewable energy, coal, gas, or energy policy in Australia. For each article provide the title, source, a brief excerpt, and approximate time published.'
-                        }]
-                    })
-                });
-
-                const data = await response.json();
+                console.log('Fetching real news articles from API...');
                 
-                // Extract news articles from Claude's response
-                let newsHTML = '';
+                const API_URL = window.location.protocol === 'file:' 
+                    ? 'http://localhost:3000'
+                    : window.location.origin;
                 
-                if (data.content && data.content.length > 0) {
-                    const textContent = data.content.find(block => block.type === 'text');
-                    if (textContent && textContent.text) {
-                        // Parse the response and create news items
-                        // Since we're getting a text response, we'll display it as structured news items
-                        newsHTML = parseDemoNews();
-                    }
+                const response = await fetch(`${API_URL}/api/news`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
                 }
                 
-                // Fallback to demo news
-                if (!newsHTML) {
-                    newsHTML = parseDemoNews();
+                const result = await response.json();
+                
+                if (result.success && result.articles && result.articles.length > 0) {
+                    console.log(`Loaded ${result.articles.length} real articles`);
+                    
+                    const newsHTML = result.articles.map(article => `
+                        <div class="news-item" onclick="window.open('${article.url}', '_blank')">
+                            <div class="news-header">
+                                <span class="news-source">${article.source}</span>
+                                <span class="news-time">${article.time}</span>
+                            </div>
+                            <div class="news-categories">
+                                ${article.categories.map(cat => 
+                                    `<span class="category-tag ${cat.toLowerCase()}">${cat}</span>`
+                                ).join('')}
+                            </div>
+                            <h3 class="news-title">${article.title}</h3>
+                            <p class="news-excerpt">${article.excerpt}</p>
+                        </div>
+                    `).join('');
+                    
+                    newsContainer.innerHTML = newsHTML;
+                } else {
+                    // Fallback to demo news
+                    newsContainer.innerHTML = parseDemoNews();
                 }
                 
-                newsContainer.innerHTML = newsHTML;
                 lastNewsUpdate = Date.now();
+                
             } catch (error) {
                 console.error('Error loading news:', error);
                 newsContainer.innerHTML = parseDemoNews();
@@ -556,8 +556,7 @@
             }
         }
 
-        function parseDemoNews() {
-            // Demo news items with categories
+        // Fallback demo news items
             const demoArticles = [
                 {
                     source: 'Australian Financial Review',
