@@ -336,18 +336,18 @@
         <div id="chartsContainer">
             <div class="loading">
                 <div class="spinner"></div>
-                Loading historical data from AEMO...
+                Loading historical data from OpenElectricity API...
             </div>
         </div>
     </div>
 
     <script>
         const regions = [
-            { code: 'NSW', name: 'New South Wales', aemoCode: 'NSW1', color: '#2563eb' },
-            { code: 'VIC', name: 'Victoria', aemoCode: 'VIC1', color: '#7c3aed' },
-            { code: 'QLD', name: 'Queensland', aemoCode: 'QLD1', color: '#dc2626' },
-            { code: 'SA', name: 'South Australia', aemoCode: 'SA1', color: '#059669' },
-            { code: 'TAS', name: 'Tasmania', aemoCode: 'TAS1', color: '#ea580c' }
+            { code: 'NSW1', name: 'New South Wales', aemoCode: 'NSW1', color: '#2563eb' },
+            { code: 'VIC1', name: 'Victoria', aemoCode: 'VIC1', color: '#7c3aed' },
+            { code: 'QLD1', name: 'Queensland', aemoCode: 'QLD1', color: '#dc2626' },
+            { code: 'SA1', name: 'South Australia', aemoCode: 'SA1', color: '#059669' },
+            { code: 'TAS1', name: 'Tasmania', aemoCode: 'TAS1', color: '#ea580c' }
         ];
 
         let charts = {};
@@ -359,22 +359,24 @@
 
         async function loadHistoricalData() {
             try {
-                console.log('Fetching real data from AEMO via proxy server...');
+                console.log('Fetching data from OpenElectricity API...');
                 
-                const response = await fetch(`${API_URL}/api/historical-all`);
+                const response = await fetch(`${API_URL}/api/historical-all?years=4`);
                 
                 if (!response.ok) {
                     const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.message || `HTTP ${response.status}`);
+                    throw new Error(errorData.message || `HTTP ${response.status}: ${errorData.error || 'Unknown error'}`);
                 }
                 
                 const result = await response.json();
+                console.log('API response:', result);
                 
                 if (!result.data) {
                     throw new Error('No data returned from server');
                 }
                 
-                // Transform the data
+                // The data is already in the correct structure from the backend
+                // result.data is keyed by region code (NSW1, VIC1, etc.)
                 const data = {};
                 
                 regions.forEach(region => {
@@ -386,8 +388,10 @@
                             maxPrice: item.maxPrice,
                             priceEvents: item.priceEvents
                         }));
+                        console.log(`Loaded ${regionData.length} months for ${region.code}`);
                     } else {
                         data[region.code] = [];
+                        console.warn(`No data for ${region.code}`);
                     }
                 });
                 
@@ -397,11 +401,13 @@
                     throw new Error('No valid data received for any region');
                 }
                 
-                console.log('Successfully loaded real AEMO data');
+                console.log('Successfully loaded OpenElectricity data');
+                console.log('Data summary:', result.note);
+                console.log('Date range:', result.dateRange);
                 return data;
                 
             } catch (error) {
-                console.error('Error loading real data:', error);
+                console.error('Error loading data:', error);
                 throw error;
             }
         }
@@ -969,12 +975,12 @@
             const chartType = document.getElementById('chartType').value;
             const container = document.getElementById('chartsContainer');
 
-            container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading historical data from AEMO...</div>';
+            container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading historical data from OpenElectricity API...</div>';
 
             try {
                 if (!cachedRealData) {
                     cachedRealData = await loadHistoricalData();
-                    updateDataSourceNotice('✓ Real data from OpenElectricity API. Showing 4 years of daily interval prices aggregated by month with actual price event analysis.');
+                    updateDataSourceNotice('✓ Real data from OpenElectricity API. Showing daily interval prices aggregated by month with price event analysis.');
                 }
 
                 const allData = cachedRealData;
@@ -1067,8 +1073,8 @@
                             <p style="color: #666; margin-bottom: 12px;">${error.message}</p>
                             <div style="background: #fef3c7; border-left: 3px solid #f59e0b; padding: 16px; margin: 20px 0; text-align: left;">
                                 <p style="color: #92400e; font-size: 0.875rem;">
-                                    This dashboard fetches real AEMO settlement data via the proxy server.
-                                    Please ensure the server is running and try refreshing the page.
+                                    This dashboard fetches real electricity market data from OpenElectricity API.
+                                    Please ensure your API key is configured and the server is running, then try refreshing the page.
                                 </p>
                             </div>
                         </div>
