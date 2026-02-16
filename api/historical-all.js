@@ -1,10 +1,55 @@
-
-/** historical-all.js (v4) */
-const { requestUpstreamWithRedirects } = require('./_upstream');
+/** historical-all.js (v4.1 - Vercel compatible) */
+const http = require('http');
+const https = require('https');
 const OE_BASE = process.env.OPENELECTRICITY_API_URL || 'https://api.openelectricity.org.au/v4';
 const REGIONS = ['NSW1','VIC1','QLD1','SA1','TAS1'];
 
 function isoMidnightUTC(d){ const dt=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate(),0,0,0,0)); return dt.toISOString().replace(/\.\d{3}Z$/,'Z'); }
+
+function requestByProtocol(u, options, onResponse){ return (u.protocol==='http:'? http: https).request(u, options, onResponse); }
+
+function requestUpstreamWithRedirects(url, headers, maxRedirects=3){
+  return new Promise((resolve,reject)=>{
+    const req = requestByProtocol(url, { method:'GET', headers }, (res)=>{
+      const status=res.statusCode; const location=res.headers.location; const requestId=res.headers['x-request-id']||res.headers['X-Request-ID'];
+      let body=''; res.on('data',(c)=> body+=c); res.on('end', async ()=>{
+        if([301,302,303,307,308].includes(status) && location && maxRedirects>0){
+          let nextUrl = new URL(location, url);
+          if(nextUrl.protocol==='http:' && url.hostname===nextUrl.hostname){ nextUrl = new URL(nextUrl.toString().replace(/^http:/,'https:')); }
+          try { 
+            const next = await requestUpstreamWithRedirects(nextUrl, headers, maxRedirects-1); 
+            return resolve(next); 
+          } catch(e){ 
+            const error = new Error('Redirect failed'); error.type='UPSTREAM'; error.status=status; error.requestId=requestId; error.url=url.toString(); error.originalError=e;
+            return reject(error); 
+          }
+        }
+        if(status>=200 && status<300){
+          try{
+            const json = JSON.parse(body);
+            resolve({ status, requestId, json, url: url.toString() });
+          }catch(parseErr){
+            const error = new Error('Failed to parse JSON'); error.type='PARSE'; error.bodySnippet=body.slice(0,500); error.url=url.toString();
+            reject(error);
+          }
+        }else{
+          const error = new Error(`Upstream returned ${status}`); error.type='UPSTREAM'; error.status=status; error.requestId=requestId; error.bodySnippet=body.slice(0,500); error.url=url.toString();
+          reject(error);
+        }
+      });
+    });
+    req.on('error', (e)=>{
+      const error = new Error('Network error'); error.type='NETWORK'; error.error=e; error.url=url.toString();
+      reject(error);
+    }); 
+    req.setTimeout(30000,()=>{ 
+      req.destroy(); 
+      const error = new Error('Request timeout'); error.type='TIMEOUT'; error.url=url.toString();
+      reject(error);
+    }); 
+    req.end();
+  });
+}
 
 async function fetchOpenElectricityData(startISO,endISO,apiKey,mode,interval){
   const headers={'Authorization':`Bearer ${apiKey}`,'Accept':'application/json','User-Agent':'aed-dashboard/1.3'};
