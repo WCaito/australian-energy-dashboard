@@ -2,401 +2,92 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0"
-  />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Historical Data - Australian Energy Market</title>
-
-  <!-- Fonts & Chart.js (these tags were stripped previously; now restored) -->
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-
   <style>
-    :root {
-      --text-primary: #1a1a1a;
-      --text-secondary: #666666;
-      --text-tertiary: #999999;
-      --border: #e5e5e5;
-      --background: #ffffff;
-      --accent: #2563eb;
-      --accent-light: #eff6ff;
-    }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: 'IBM Plex Sans', -apple-system, sans-serif;
-      background: var(--background);
-      color: var(--text-primary);
-      line-height: 1.6;
-    }
-    .container { max-width: 1400px; margin: 0 auto; padding: 60px 24px; }
-    header { margin-bottom: 48px; border-bottom: 1px solid var(--border); padding-bottom: 32px; }
-    .back-link {
-      display: inline-flex; align-items: center; gap: 8px; font-size: 0.875rem;
-      color: var(--accent); text-decoration: none; margin-bottom: 24px; font-weight: 500;
-    }
-    .back-link:hover { text-decoration: underline; }
-    h1 {
-      font-family: 'IBM Plex Serif', Georgia, serif;
-      font-size: 2.5rem; font-weight: 600; line-height: 1.2; margin-bottom: 12px;
-      color: var(--text-primary); letter-spacing: -0.02em;
-    }
-    .subtitle { font-size: 0.95rem; color: var(--text-secondary); font-weight: 400; }
-
-    .info-box { background: var(--accent-light); border-left: 3px solid var(--accent); padding: 24px; margin-bottom: 48px; }
-    .info-title {
-      font-family: 'IBM Plex Serif', Georgia, serif; font-size: 1.125rem; font-weight: 600;
-      color: var(--text-primary); margin-bottom: 12px;
-    }
-    .info-text { font-size: 0.9375rem; color: var(--text-secondary); line-height: 1.7; }
-
-    .data-notice { background: #d1fae5; border-left: 3px solid #059669; padding: 16px 24px; margin-bottom: 32px; display: none; }
-    .data-notice-text { font-size: 0.875rem; color: #065f46; font-weight: 500; }
-
-    .controls { display: flex; gap: 24px; margin-bottom: 48px; flex-wrap: wrap; }
-    .control-group { display: flex; flex-direction: column; gap: 8px; }
-    label { font-size: 0.875rem; font-weight: 500; color: var(--text-secondary); }
-    select {
-      padding: 10px 16px; border: 1px solid var(--border); font-size: 0.9375rem; font-family: inherit;
-      cursor: pointer; min-width: 200px;
-    }
-
-    .chart-container { background: var(--background); border: 1px solid var(--border); padding: 32px; margin-bottom: 48px; }
-    .chart-header { margin-bottom: 32px; }
-    .chart-title {
-      font-family: 'IBM Plex Serif', Georgia, serif; font-size: 1.5rem; font-weight: 600;
-      color: var(--text-primary); margin-bottom: 16px;
-    }
-    .chart-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px; }
-    .stat { display: flex; flex-direction: column; gap: 4px; }
-    .stat-label {
-      font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase;
-      letter-spacing: 0.05em; font-weight: 500;
-    }
-    .stat-value { font-size: 1.125rem; font-weight: 600; color: var(--text-primary); }
-
-    .canvas-wrapper { position: relative; height: 400px; margin-bottom: 32px; }
-
-    .event-charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 24px; margin-top: 32px; margin-bottom: 32px; }
-    .event-chart-container { border: 1px solid var(--border); padding: 24px; background: #fafafa; }
-    .event-chart-title {
-      font-family: 'IBM Plex Serif', Georgia, serif; font-size: 1rem; font-weight: 600; margin-bottom: 16px; color: var(--text-primary);
-    }
-    .event-chart-wrapper { position: relative; height: 300px; }
-
-    .price-events-table { width: 100%; border-collapse: collapse; margin-top: 24px; font-size: 0.875rem; }
-    .price-events-table th {
-      background: #f9fafb; padding: 12px 16px; text-align: left; font-weight: 600; color: var(--text-secondary);
-      border-bottom: 2px solid var(--border); font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.05em;
-    }
-    .price-events-table td { padding: 12px 16px; border-bottom: 1px solid var(--border); color: var(--text-primary); }
-    .price-events-table tr:hover { background: #fafafa; }
-    .event-count { font-weight: 600; }
-    .event-percentage { color: var(--text-secondary); font-size: 0.8125rem; }
-    .table-title {
-      font-family: 'IBM Plex Serif', Georgia, serif; font-size: 1.125rem; font-weight: 600; margin-bottom: 16px; color: var(--text-primary);
-    }
-
-    .loading { text-align: center; padding: 80px 20px; color: var(--text-secondary); }
-    .spinner {
-      border: 3px solid var(--border); border-top: 3px solid var(--accent); border-radius: 50%;
-      width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 16px;
-    }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
-    @media (max-width: 768px) {
-      .container { padding: 40px 16px; }
-      h1 { font-size: 2rem; }
-      .controls { flex-direction: column; }
-      select { width: 100%; }
-    }
-
-    /* A tiny status line to surface fetch issues clearly */
-    .status-line { margin: 10px 0 20px; font-size: 0.875rem; color: #444; }
-    .status-line .ok { color: #047857; }
-    .status-line .err { color: #b91c1c; }
+    :root { --text-primary:#1a1a1a; --text-secondary:#666; --text-tertiary:#999; --border:#e5e5e5; --background:#fff; --accent:#2563eb; --accent-light:#eff6ff; }
+    *{margin:0;padding:0;box-sizing:border-box} body{font-family:'IBM Plex Sans',-apple-system,sans-serif;background:var(--background);color:var(--text-primary);line-height:1.6}
+    .container{max-width:1400px;margin:0 auto;padding:60px 24px} header{margin-bottom:48px;border-bottom:1px solid var(--border);padding-bottom:32px}
+    .back-link{display:inline-flex;align-items:center;gap:8px;font-size:.875rem;color:var(--accent);text-decoration:none;margin-bottom:24px;font-weight:500}
+    .back-link:hover{text-decoration:underline}
+    h1{font-family:'IBM Plex Serif',Georgia,serif;font-size:2.5rem;font-weight:600;line-height:1.2;margin-bottom:12px;color:var(--text-primary);letter-spacing:-.02em}
+    .subtitle{font-size:.95rem;color:var(--text-secondary);font-weight:400}
+    .info-box{background:var(--accent-light);border-left:3px solid var(--accent);padding:24px;margin-bottom:48px}
+    .info-title{font-family:'IBM Plex Serif',Georgia,serif;font-size:1.125rem;font-weight:600;color:var(--text-primary);margin-bottom:12px}
+    .info-text{font-size:.9375rem;color:var(--text-secondary);line-height:1.7}
+    .data-notice{background:#d1fae5;border-left:3px solid #059669;padding:16px 24px;margin-bottom:32px;display:none}
+    .data-notice-text{font-size:.875rem;color:#065f46;font-weight:500}
+    .controls{display:flex;gap:24px;margin-bottom:48px;flex-wrap:wrap}
+    .control-group{display:flex;flex-direction:column;gap:8px}
+    label{font-size:.875rem;font-weight:500;color:var(--text-secondary)}
+    select{padding:10px 16px;border:1px solid var(--border);font-size:.9375rem;font-family:inherit;cursor:pointer;min-width:200px}
+    .chart-container{background:var(--background);border:1px solid var(--border);padding:32px;margin-bottom:48px}
+    .chart-header{margin-bottom:32px}
+    .chart-title{font-family:'IBM Plex Serif',Georgia,serif;font-size:1.5rem;font-weight:600;color:var(--text-primary);margin-bottom:16px}
+    .chart-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:16px}
+    .stat{display:flex;flex-direction:column;gap:4px}
+    .stat-label{font-size:.75rem;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em;font-weight:500}
+    .stat-value{font-size:1.125rem;font-weight:600;color:var(--text-primary)}
+    .canvas-wrapper{position:relative;height:400px;margin-bottom:32px}
+    .event-charts-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:24px;margin-top:32px;margin-bottom:32px}
+    .event-chart-container{border:1px solid var(--border);padding:24px;background:#fafafa}
+    .event-chart-title{font-family:'IBM Plex Serif',Georgia,serif;font-size:1rem;font-weight:600;margin-bottom:16px;color:var(--text-primary)}
+    .event-chart-wrapper{position:relative;height:300px}
+    .price-events-table{width:100%;border-collapse:collapse;margin-top:24px;font-size:.875rem}
+    .price-events-table th{background:#f9fafb;padding:12px 16px;text-align:left;font-weight:600;color:var(--text-secondary);border-bottom:2px solid var(--border);font-size:.8125rem;text-transform:uppercase;letter-spacing:.05em}
+    .price-events-table td{padding:12px 16px;border-bottom:1px solid var(--border);color:var(--text-primary)}
+    .price-events-table tr:hover{background:#fafafa}
+    .event-count{font-weight:600}.event-percentage{color:var(--text-secondary);font-size:.8125rem}
+    .table-title{font-family:'IBM Plex Serif',Georgia,serif;font-size:1.125rem;font-weight:600;margin-bottom:16px;color:var(--text-primary)}
+    .loading{text-align:center;padding:80px 20px;color:var(--text-secondary)}
+    .spinner{border:3px solid var(--border);border-top:3px solid var(--accent);border-radius:50%;width:40px;height:40px;animation:spin 1s linear infinite;margin:0 auto 16px}
+    @keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
+    @media (max-width:768px){.container{padding:40px 16px}h1{font-size:2rem}.controls{flex-direction:column}select{width:100%}}
+    .status-line{margin:10px 0 20px;font-size:.875rem;color:#444}.status-line .ok{color:#047857}.status-line .err{color:#b91c1c}
   </style>
 </head>
 <body>
   <div class="container">
     <header>
-      <a href="australian-energy-market.html" class="back-link">← Back to Dashboard</a>
+      <a href="/" class="back-link">← Back to Dashboard</a>
       <h1>Historical Price Data</h1>
       <p class="subtitle">Monthly average and maximum spot prices from AEMO settlement data</p>
     </header>
 
-    <div class="info-box">
-      <div class="info-title">About This Data</div>
-      <div class="info-text">
-        This page displays real historical electricity price data from the OpenElectricity API, which aggregates data from AEMO (Australian Energy Market Operator). Data shown are daily interval spot prices across the NEM, aggregated to monthly statistics with event analysis (negative, high $300–$1,000/MWh, extreme ≥$1,000/MWh).
-      </div>
+    <div class="info-box"><div class="info-title">About This Data</div>
+      <div class="info-text">This page displays real historical electricity price data from the OpenElectricity API, which aggregates data from AEMO. Data shown are daily interval spot prices across the NEM, aggregated to monthly statistics with event analysis.</div>
     </div>
 
-    <div class="data-notice" id="dataSourceNotice">
-      <div class="data-notice-text" id="dataSourceText">Loading data...</div>
-    </div>
+    <div class="data-notice" id="dataSourceNotice"><div class="data-notice-text" id="dataSourceText">Loading data...</div></div>
 
-    <div class="controls">
-      <div class="control-group">
-        <label for="chartType">Chart Type</label>
-        <select id="chartType" onchange="updateCharts()">
-          <option value="line">Line Chart</option>
-          <option value="bar">Bar Chart</option>
-        </select>
-      </div>
-    </div>
+    <div class="controls"><div class="control-group"><label for="chartType">Chart Type</label>
+      <select id="chartType" onchange="updateCharts()"><option value="line">Line Chart</option><option value="bar">Bar Chart</option></select>
+    </div></div>
 
     <div class="status-line" id="statusLine"></div>
 
-    <div id="chartsContainer">
-      <div class="loading">
-        <div class="spinner"></div>
-        Loading historical data from OpenElectricity API...
-      </div>
-    </div>
+    <div id="chartsContainer"><div class="loading"><div class="spinner"></div>Loading historical data from OpenElectricity API...</div></div>
   </div>
 
   <script>
-    // --- Configuration ---
-    const regions = [
-      { code: 'NSW1', name: 'New South Wales', aemoCode: 'NSW1', color: '#2563eb' },
-      { code: 'VIC1', name: 'Victoria',        aemoCode: 'VIC1', color: '#7c3aed' },
-      { code: 'QLD1', name: 'Queensland',      aemoCode: 'QLD1', color: '#dc2626' },
-      { code: 'SA1',  name: 'South Australia', aemoCode: 'SA1',  color: '#059669' },
-      { code: 'TAS1', name: 'Tasmania',        aemoCode: 'TAS1', color: '#ea580c' }
-    ];
-
-    let charts = {};
-    let cachedRealData = null;
-
-    // If opened from the filesystem, use a local dev server on 3000; else use same origin (serverless route)
-    const API_URL = window.location.protocol === 'file:' ? 'http://localhost:3000' : window.location.origin;
-
-    const statusEl = document.getElementById('statusLine');
-
-    function setStatus(html, isOk=false) {
-      statusEl.innerHTML = isOk ? `<span class="ok">✔ ${html}</span>` : `<span class="err">✖ ${html}</span>`;
-    }
-
-    // --- Data Loading ---
-    async function loadHistoricalData() {
-      try {
-        const url = `${API_URL}/api/historical-all?years=4`;
-        console.log('Fetching:', url);
-        const response = await fetch(url);
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          const msg = errorData.message || errorData.error || 'Unknown error';
-          setStatus(`Fetch failed (${response.status}): ${msg}`);
-          throw new Error(`HTTP ${response.status}: ${msg}`);
-        }
-
-        const result = await response.json();
-        if (!result.data) {
-          setStatus('No data returned from server.');
-          throw new Error('No data returned from server');
-        }
-
-        // Map backend structure to visualization structure
-        const data = {};
-        regions.forEach((region) => {
-          const regionData = result.data[region.aemoCode];
-          if (regionData && regionData.length > 0) {
-            data[region.code] = regionData.map(item => ({
-              date: new Date(item.date),
-              averagePrice: item.averagePrice,
-              maxPrice: item.maxPrice,
-              priceEvents: item.priceEvents
-            }));
-          } else {
-            data[region.code] = [];
-          }
-        });
-
-        const hasData = Object.values(data).some(arr => arr.length > 0);
-        if (!hasData) {
-          setStatus('No valid data received for any region.');
-          throw new Error('No valid data received for any region');
-        }
-
-        updateDataSourceNotice('✓ Real data from OpenElectricity API (v4). Grouped by region and aggregated monthly.');
-        setStatus('Data loaded successfully.', true);
-        return data;
-      } catch (error) {
-        console.error('Error loading data:', error);
-        if (!statusEl.innerText) setStatus(error.message);
-        throw error;
-      }
-    }
-
-    // --- Helpers / Stats ---
-    function calculateStats(data) {
-      const avgPrices = data.map(d => d.averagePrice);
-      const maxPrices = data.map(d => d.maxPrice);
-      return {
-        average: (avgPrices.reduce((a, b) => a + b, 0) / avgPrices.length).toFixed(2),
-        peak: Math.max(...maxPrices).toFixed(2),
-        lowest: Math.min(...avgPrices).toFixed(2)
-      };
-    }
-
-    function aggregatePriceEvents(data) {
-      const totals = {
-        negative: { count: 0, percentage: 0 },
-        high:     { count: 0, percentage: 0 },
-        extreme:  { count: 0, percentage: 0 }
-      };
-
-      data.forEach(item => {
-        if (item.priceEvents) {
-          totals.negative.count += parseInt(item.priceEvents.negative.count) || 0;
-          totals.high.count     += parseInt(item.priceEvents.high.count)     || 0;
-          totals.extreme.count  += parseInt(item.priceEvents.extreme.count)  || 0;
-        }
-      });
-
-      // Approximate denominator (months * days * hours * 5‑min intervals)
-      const totalIntervals = data.length * 30 * 24 * 12;
-      totals.negative.percentage = ((totals.negative.count / totalIntervals) * 100).toFixed(2);
-      totals.high.percentage     = ((totals.high.count     / totalIntervals) * 100).toFixed(2);
-      totals.extreme.percentage  = ((totals.extreme.count  / totalIntervals) * 100).toFixed(2);
-
-      return totals;
-    }
-
-    // --- Charts ---
-    function createChart(region, data, chartType) {
-      const canvas = document.getElementById(`chart-${region.code}`);
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-
-      if (charts[region.code]) charts[region.code].destroy();
-
-      const labels = data.map(d => d.date.toLocaleDateString('en-AU', { year: 'numeric', month: 'short' }));
-
-      charts[region.code] = new Chart(ctx, {
-        type: chartType,
-        data: {
-          labels,
-          datasets: [
-            {
-              label: 'Average Price',
-              data: data.map(d => d.averagePrice),
-              borderColor: region.color,
-              backgroundColor: chartType === 'bar' ? region.color + '40' : region.color + '20',
-              borderWidth: 2,
-              fill: chartType === 'line',
-              tension: 0.4,
-              pointRadius: 0,
-              pointHoverRadius: 5,
-              pointHoverBackgroundColor: region.color,
-              pointHoverBorderColor: '#ffffff',
-              pointHoverBorderWidth: 2,
-              yAxisID: 'y'
-            },
-            {
-              label: 'Maximum Price',
-              data: data.map(d => d.maxPrice),
-              borderColor: '#dc2626',
-              backgroundColor: chartType === 'bar' ? '#dc262640' : 'transparent',
-              borderWidth: 2,
-              borderDash: [5, 5],
-              fill: false,
-              tension: 0.4,
-              pointRadius: 0,
-              pointHoverRadius: 5,
-              pointHoverBackgroundColor: '#dc2626',
-              pointHoverBorderColor: '#ffffff',
-              pointHoverBorderWidth: 2,
-              yAxisID: 'y1'
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          interaction: { mode: 'index', intersect: false },
-          plugins: {
-            legend: {
-              display: true,
-              position: 'top',
-              labels: { usePointStyle: true, padding: 15, font: { size: 12 } }
-            },
-            tooltip: {
-              backgroundColor: '#1a1a1a',
-              titleColor: '#ffffff',
-              bodyColor: '#e5e5e5',
-              borderColor: '#666666',
-              borderWidth: 1,
-              padding: 12,
-              displayColors: true,
-              callbacks: {
-                label: function (context) {
-                  let label = context.dataset.label || '';
-                  if (label) label += ': ';
-                  label += '$' + context.parsed.y.toFixed(2) + ' /MWh';
-                  return label;
-                }
-              }
-            }
-          },
-          scales: {
-            x: {
-              grid: { display: false },
-              ticks: { maxTicksLimit: 12, color: '#999999', font: { size: 11 } }
-            },
-            y: {
-              type: 'linear',
-              display: true,
-              position: 'left',
-              beginAtZero: false,
-              grid: { color: '#e5e5e5' },
-              ticks: { color: '#999999', callback: (v) => '$' + v, font: { size: 11 } },
-              title: { display: true, text: 'Average Price ($/MWh)', color: '#666666', font: { size: 12, weight: '500' } }
-            },
-            y1: {
-              type: 'linear',
-              display: true,
-              position: 'right',
-              beginAtZero: false,
-              grid: { drawOnChartArea: false },
-              ticks: { color: '#999999', callback: (v) => '$' + v, font: { size: 11 } },
-              title: { display: true, text: 'Maximum Price ($/MWh)', color: '#dc2626', font: { size: 12, weight: '500' } }
-            }
-          }
-        }
-      });
-    }
-
-    function createNegativePriceChart(region, data) {
-      const canvas = document.getElementById(`chart-negative-${region.code}`);
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      const chartKey = `${region.code}-negative`;
-
-      if (charts[chartKey]) charts[chartKey].destroy();
-
-      const labels = data.map(d => d.date.toLocaleDateString('en-AU', { year: 'numeric', month: 'short' }));
-      const counts = data.map(d => d.priceEvents ? parseInt(d.priceEvents.negative.count) || 0 : 0);
-
-      charts[chartKey] = new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels,
-          datasets: [{
-            label: 'Negative Price Events',
-            data: counts,
-            backgroundColor: '#0891b2',
-            borderColor: '#0e7490',
-            borderWidth: 1
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              backgroundColor: '#1a1a1a',
-              callbacks: {
+    const API_URL = "https://australian-energy-dashboard.vercel.app"; // hard-set to deployed origin
+    async function fetchWithTimeout(resource, options = {}) { const { timeout = 20000 } = options; const controller = new AbortController(); const id = setTimeout(() => controller.abort(), timeout); try { const resp = await fetch(resource, { ...options, signal: controller.signal }); return resp; } finally { clearTimeout(id); } }
+    const regions = [ { code:'NSW1',name:'New South Wales',aemoCode:'NSW1',color:'#2563eb' }, { code:'VIC1',name:'Victoria',aemoCode:'VIC1',color:'#7c3aed' }, { code:'QLD1',name:'Queensland',aemoCode:'QLD1',color:'#dc2626' }, { code:'SA1',name:'South Australia',aemoCode:'SA1',color:'#059669' }, { code:'TAS1',name:'Tasmania',aemoCode:'TAS1',color:'#ea580c' } ];
+    let charts = {}; let cachedRealData = null; const statusEl = document.getElementById('statusLine'); function setStatus(html, ok=false){ statusEl.innerHTML = ok? `<span class=\"ok\">✔ ${html}</span>` : `<span class=\"err\">✖ ${html}</span>`; }
+    function updateDataSourceNotice(msg){ const n=document.getElementById('dataSourceNotice'); const t=document.getElementById('dataSourceText'); t.textContent=msg; n.style.display='block'; }
+    async function loadHistoricalData(){ try{ const url = `${API_URL}/api/historical-all?years=4`; const response = await fetchWithTimeout(url,{ timeout:20000 }); if(!response.ok){ const e=await response.json().catch(()=>({})); const msg=e.message||e.error||'Unknown error'; setStatus(`Fetch failed (${response.status}): ${msg}`); throw new Error(`HTTP ${response.status}: ${msg}`); } const result = await response.json(); if(!result.data){ setStatus('No data returned from server.'); throw new Error('No data returned from server'); } const data={}; regions.forEach(r=>{ const rd=result.data[r.aemoCode]; data[r.code]=Array.isArray(rd)? rd.map(it=>({ date:new Date(it.date), averagePrice:it.averagePrice, maxPrice:it.maxPrice, priceEvents:it.priceEvents })) : []; }); const has=Object.values(data).some(a=>a.length>0); if(!has){ setStatus('No valid data received for any region.'); throw new Error('No valid data received for any region'); } updateDataSourceNotice('✓ Real data from OpenElectricity API (v4). Grouped by region and aggregated monthly.'); setStatus('Data loaded successfully.', true); return data; } catch(err){ console.error(err); if(!statusEl.innerText) setStatus(err.message); throw err; } }
+    function calculateStats(d){ const a=d.map(x=>x.averagePrice), m=d.map(x=>x.maxPrice); return { average:(a.reduce((p,c)=>p+c,0)/a.length).toFixed(2), peak:Math.max(...m).toFixed(2), lowest:Math.min(...a).toFixed(2) }; }
+    function aggregatePriceEvents(d){ const t={ negative:{count:0,percentage:0}, high:{count:0,percentage:0}, extreme:{count:0,percentage:0} }; d.forEach(it=>{ if(it.priceEvents){ t.negative.count+=parseInt(it.priceEvents.negative.count)||0; t.high.count+=parseInt(it.priceEvents.high.count)||0; t.extreme.count+=parseInt(it.priceEvents.extreme.count)||0; } }); const total=d.length*30*24*12; t.negative.percentage=((t.negative.count/total)*100).toFixed(2); t.high.percentage=((t.high.count/total)*100).toFixed(2); t.extreme.percentage=((t.extreme.count/total)*100).toFixed(2); return t; }
+    function createPriceEventsTable(e){ return `<div class=\"table-title\">Price Events Analysis</div><table class=\"price-events-table\"><thead><tr><th>Event Type</th><th>Count</th><th>% of Period</th></tr></thead><tbody><tr><td>Negative Prices (&lt; $0/MWh)</td><td><span class=\"event-count\">${Number(e.negative.count).toLocaleString()}</span></td><td><span class=\"event-percentage\">${e.negative.percentage}%</span></td></tr><tr><td>High Prices ($300 - $1,000/MWh)</td><td><span class=\"event-count\">${Number(e.high.count).toLocaleString()}</span></td><td><span class=\"event-percentage\">${e.high.percentage}%</span></td></tr><tr><td>Extreme Prices (≥ $1,000/MWh)</td><td><span class=\"event-count\">${Number(e.extreme.count).toLocaleString()}</span></td><td><span class=\"event-percentage\">${e.extreme.percentage}%</span></td></tr></tbody></table>`; }
+    function createChart(region,data,chartType){ const cv=document.getElementById(`chart-${region.code}`); if(!cv) return; const ctx=cv.getContext('2d'); if(charts[region.code]) charts[region.code].destroy(); const labels=data.map(d=>d.date.toLocaleDateString('en-AU',{year:'numeric',month:'short'})); charts[region.code]=new Chart(ctx,{ type:chartType, data:{ labels, datasets:[ { label:'Average Price', data:data.map(d=>d.averagePrice), borderColor:region.color, backgroundColor:chartType==='bar'? region.color+'40':region.color+'20', borderWidth:2, fill:chartType==='line', tension:.4, pointRadius:0, pointHoverRadius:5, pointHoverBackgroundColor:region.color, pointHoverBorderColor:'#fff', pointHoverBorderWidth:2, yAxisID:'y' }, { label:'Maximum Price', data:data.map(d=>d.maxPrice), borderColor:'#dc2626', backgroundColor:chartType==='bar'? '#dc262640':'transparent', borderWidth:2, borderDash:[5,5], fill:false, tension:.4, pointRadius:0, pointHoverRadius:5, pointHoverBackgroundColor:'#dc2626', pointHoverBorderColor:'#fff', pointHoverBorderWidth:2, yAxisID:'y1' } ] }, options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false}, plugins:{ legend:{ display:true, position:'top', labels:{ usePointStyle:true, padding:15, font:{size:12} } }, tooltip:{ backgroundColor:'#1a1a1a', titleColor:'#fff', bodyColor:'#e5e5e5', borderColor:'#666', borderWidth:1, padding:12, displayColors:true, callbacks:{ label:(c)=> (c.dataset.label? c.dataset.label+': ':'')+'$'+c.parsed.y.toFixed(2)+' /MWh' } } }, scales:{ x:{ grid:{display:false}, ticks:{ maxTicksLimit:12, color:'#999', font:{size:11} } }, y:{ type:'linear', display:true, position:'left', beginAtZero:false, grid:{color:'#e5e5e5'}, ticks:{ color:'#999', callback:v=>'$'+v, font:{size:11} }, title:{ display:true, text:'Average Price ($/MWh)', color:'#666', font:{ size:12, weight:'500' } } }, y1:{ type:'linear', display:true, position:'right', beginAtZero:false, grid:{ drawOnChartArea:false }, ticks:{ color:'#999', callback:v=>'$'+v, font:{size:11} }, title:{ display:true, text:'Maximum Price ($/MWh)', color:'#dc2626', font:{ size:12, weight:'500' } } } } } }); }
+    function createNeg(region,data){ const cv=document.getElementById(`chart-negative-${region.code}`); if(!cv) return; const ctx=cv.getContext('2d'); const key=`${region.code}-negative`; if(charts[key]) charts[key].destroy(); const labels=data.map(d=>d.date.toLocaleDateString('en-AU',{year:'numeric',month:'short'})); const counts=data.map(d=> d.priceEvents? parseInt(d.priceEvents.negative.count)||0:0 ); charts[key]=new Chart(ctx,{ type:'bar', data:{ labels, datasets:[{ label:'Negative Price Events', data:counts, backgroundColor:'#0891b2', borderColor:'#0e7490', borderWidth:1 }] }, options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false}, tooltip:{ backgroundColor:'#1a1a1a', callbacks:{ label:(c)=> 'Events: '+c.parsed.y.toLocaleString() } } }, scales:{ x:{ grid:{display:false}, ticks:{ maxTicksLimit:6, color:'#999', font:{size:10} } }, y:{ beginAtZero:true, grid:{color:'#e5e5e5'}, ticks:{color:'#999', font:{size:10}}, title:{ display:true, text:'Number of Events', color:'#666', font:{ size:11, weight:'500' } } } } } }); }
+    function createHigh(region,data){ const cv=document.getElementById(`chart-high-${region.code}`); if(!cv) return; const ctx=cv.getContext('2d'); const key=`${region.code}-high`; if(charts[key]) charts[key].destroy(); const labels=data.map(d=>d.date.toLocaleDateString('en-AU',{year:'numeric',month:'short'})); const counts=data.map(d=> d.priceEvents? parseInt(d.priceEvents.high.count)||0:0 ); const avg=data.map(d=> (d.priceEvents && d.priceEvents.high.avgPrice && d.priceEvents.high.avgPrice>0)? d.priceEvents.high.avgPrice:null ); charts[key]=new Chart(ctx,{ type:'bar', data:{ labels, datasets:[ { label:'Event Count', data:counts, backgroundColor:'#f59e0b', borderColor:'#d97706', borderWidth:1, yAxisID:'y' }, { label:'Avg Event Price', data:avg, type:'line', borderColor:'#dc2626', backgroundColor:'transparent', borderWidth:2, tension:.4, pointRadius:3, pointHoverRadius:5, yAxisID:'y1', spanGaps:true } ] }, options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false}, plugins:{ legend:{ display:true, position:'top', labels:{ usePointStyle:true, padding:10, font:{size:10} } }, tooltip:{ backgroundColor:'#1a1a1a', callbacks:{ label:(c)=> c.dataset.label==='Event Count'? 'Events: '+c.parsed.y.toLocaleString(): 'Avg: $'+c.parsed.y.toFixed(2)+'/MWh' } } }, scales:{ x:{ grid:{display:false}, ticks:{ maxTicksLimit:6, color:'#999', font:{size:10} } }, y:{ type:'linear', display:true, position:'left', beginAtZero:true, grid:{color:'#e5e5e5'}, ticks:{color:'#999', font:{size:10}}, title:{ display:true, text:'Event Count', color:'#666', font:{ size:11, weight:'500' } } }, y1:{ type:'linear', display:true, position:'right', beginAtZero:false, grid:{ drawOnChartArea:false }, ticks:{ color:'#999', callback:v=>'$'+v, font:{size:10} }, title:{ display:true, text:'Avg Price ($/MWh)', color:'#dc2626', font:{ size:11, weight:'500' } } } } } }); }
+    function createExtreme(region,data){ const cv=document.getElementById(`chart-extreme-${region.code}`); if(!cv) return; const ctx=cv.getContext('2d'); const key=`${region.code}-extreme`; if(charts[key]) charts[key].destroy(); const labels=data.map(d=>d.date.toLocaleDateString('en-AU',{year:'numeric',month:'short'})); const counts=data.map(d=> d.priceEvents? parseInt(d.priceEvents.extreme.count)||0:0 ); const avg=data.map(d=> (d.priceEvents && d.priceEvents.extreme.avgPrice && d.priceEvents.extreme.avgPrice>0)? d.priceEvents.extreme.avgPrice:null ); charts[key]=new Chart(ctx,{ type:'bar', data:{ labels, datasets:[ { label:'Event Count', data:counts, backgroundColor:'#dc2626', borderColor:'#b91c1c', borderWidth:1, yAxisID:'y' }, { label:'Avg Event Price', data:avg, type:'line', borderColor:'#7c2d12', backgroundColor:'transparent', borderWidth:2, tension:.4, pointRadius:3, pointHoverRadius:5, yAxisID:'y1', spanGaps:true } ] }, options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false}, plugins:{ legend:{ display:true, position:'top', labels:{ usePointStyle:true, padding:10, font:{size:10} } }, tooltip:{ backgroundColor:'#1a1a1a', callbacks:{ label:(c)=> c.dataset.label==='Event Count'? 'Events: '+c.parsed.y.toLocaleString(): 'Avg: $'+c.parsed.y.toFixed(2)+'/MWh' } } }, scales:{ x:{ grid:{display:false}, ticks:{ maxTicksLimit:6, color:'#999', font:{size:10} } }, y:{ type:'linear', display:true, position:'left', beginAtZero:true, grid:{color:'#e5e5e5'}, ticks:{color:'#999', font:{size:10}}, title:{ display:true, text:'Event Count', color:'#666', font:{ size:11, weight:'500' } } }, y1:{ type:'linear', display:true, position:'right', beginAtZero:false, grid:{ drawOnChartArea:false }, ticks:{ color:'#999', callback:v=>'$'+v, font:{size:10} }, title:{ display:true, text:'Avg Price ($/MWh)', color:'#7c2d12', font:{ size:11, weight:'500' } } } } } }); }
+    async function renderCharts(){ const chartType=document.getElementById('chartType').value; const container=document.getElementById('chartsContainer'); container.innerHTML='<div class=\"loading\"><div class=\"spinner\"></div>Loading historical data from OpenElectricity API...</div>'; try{ if(!cachedRealData) cachedRealData=await loadHistoricalData(); const all=cachedRealData; container.innerHTML = regions.map(r=>{ const rd=all[r.code]; if(!rd||rd.length===0){ return `<div class=\"chart-container\"><div class=\"chart-header\"><h2 class=\"chart-title\">${r.name} (${r.code})</h2></div><div style=\"padding:40px;text-align:center;color:#999;\">No data available for this region</div></div>`; } const st=calculateStats(rd); const ev=aggregatePriceEvents(rd); return `<div class=\"chart-container\"><div class=\"chart-header\"><h2 class=\"chart-title\">${r.name} (${r.code})</h2><div class=\"chart-stats\"><div class=\"stat\"><span class=\"stat-label\">Avg Price</span><span class=\"stat-value\">$${st.average} /MWh</span></div><div class=\"stat\"><span class=\"stat-label\">Peak Price</span><span class=\"stat-value\">$${st.peak} /MWh</span></div><div class=\"stat\"><span class=\"stat-label\">Lowest Avg</span><span class=\"stat-value\">$${st.lowest} /MWh</span></div></div></div><div class=\"canvas-wrapper\"><canvas id=\"chart-${r.code}\"></canvas></div>${createPriceEventsTable(ev)}<div class=\"event-charts-grid\"><div class=\"event-chart-container\"><div class=\"event-chart-title\">Negative Price Events Per Month</div><div class=\"event-chart-wrapper\"><canvas id=\"chart-negative-${r.code}\"></canvas></div></div><div class=\"event-chart-container\"><div class=\"event-chart-title\">High Price Events ($300-$1,000/MWh)</div><div class=\"event-chart-wrapper\"><canvas id=\"chart-high-${r.code}\"></canvas></div></div><div class=\"event-chart-container\"><div class=\"event-chart-title\">Extreme Price Events (≥$1,000/MWh)</div><div class=\"event-chart-wrapper\"><canvas id=\"chart-extreme-${r.code}\"></canvas></div></div></div></div>`; }).join(''); setTimeout(()=>{ regions.forEach(r=>{ const rd=all[r.code]; if(rd&&rd.length>0){ createChart(r,rd,chartType); createNeg(r,rd); createHigh(r,rd); createExtreme(r,rd); } }); },100); } catch(err){ console.error('render err',err); container.innerHTML = `<div class=\"chart-container\"><div style=\"padding:40px;text-align:center;\"><h3 style=\"color:#dc2626;margin-bottom:16px;\">⚠️ Unable to Load Data</h3><p style=\"color:#666;margin-bottom:12px;\">${err.message}</p><div style=\"background:#fef3c7;border-left:3px solid #f59e0b;padding:16px;margin:20px 0;text-align:left;\"><p style=\"color:#92400e;font-size:.875rem;\">Ensure your serverless function is running and has a valid OpenElectricity API key.</p></div></div></div>`; updateDataSourceNotice('✗ Failed to load data.'); } }
+    function updateCharts(){ cachedRealData=null; renderCharts(); }
+    renderCharts();
+  </script>
+</body>
+</html>
