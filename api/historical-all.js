@@ -1,210 +1,173 @@
-const http = require('http');
 const https = require('https');
 
 /**
- * Fetch AEMO CSV data for a specific region and month
+ * Fetch price data from OpenElectricity API
+ * Returns daily interval data which we'll aggregate into monthly stats
  */
-function fetchAEMOCSV(region, year, month) {
+function fetchOpenElectricityData(startDate, endDate, apiKey) {
     return new Promise((resolve, reject) => {
-        const yearMonth = `${year}${month.toString().padStart(2, '0')}`;
-        const url = `https://www.aemo.com.au/aemo/data/nem/priceanddemand/PRICE_AND_DEMAND_${yearMonth}_${region}.csv`;
+        const path = `/v4/market/NEM?metrics=price&interval=1d&primaryGrouping=network_region&dateStart=${startDate}&dateEnd=${endDate}`;
         
-        console.log(`Fetching: ${url}`);
-
-        https.get(url, (res) => {
-            // Handle redirects
-            if (res.statusCode === 301 || res.statusCode === 302) {
-                const redirectUrl = res.headers.location;
-                console.log(`Following redirect to: ${redirectUrl}`);
-                
-                const protocol = redirectUrl.startsWith('https') ? https : http;
-                
-                protocol.get(redirectUrl, (redirectRes) => {
-                    let data = '';
-                    
-                    if (redirectRes.statusCode !== 200) {
-                        console.log(`HTTP ${redirectRes.statusCode} after redirect for ${region} ${yearMonth}`);
-                        reject(new Error(`HTTP ${redirectRes.statusCode}`));
-                        return;
-                    }
-                    
-                    redirectRes.on('data', (chunk) => { data += chunk; });
-                    redirectRes.on('end', () => {
-                        try {
-                            const stats = parseCSVAndCalculateStats(data);
-                            if (stats === null) {
-                                reject(new Error('No valid price data'));
-                                return;
-                            }
-                            console.log(`✓ ${region} ${yearMonth}: Avg $${stats.average.toFixed(2)}, Max $${stats.max.toFixed(2)}/MWh`);
-                            resolve(stats);
-                        } catch (error) {
-                            reject(error);
-                        }
-                    });
-                }).on('error', reject);
-                return;
+        const options = {
+            hostname: 'api.openelectricity.org.au',
+            port: 443,
+            path: path,
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Accept': 'application/json'
             }
+        };
 
-            if (res.statusCode !== 200) {
-                console.log(`HTTP ${res.statusCode} for ${region} ${yearMonth}`);
-                reject(new Error(`HTTP ${res.statusCode}`));
-                return;
-            }
+        console.log(`Fetching from OpenElectricity: ${startDate} to ${endDate}`);
+        console.log(`URL: https://api.openelectricity.org.au${path}`);
 
+        const req = https.request(options, (res) => {
             let data = '';
-            res.on('data', (chunk) => { data += chunk; });
+
+            console.log(`Response status: ${res.statusCode}`);
+
+            res.on('data', (chunk) => {
+                data += chunk;
+            });
+
             res.on('end', () => {
                 try {
-                    const stats = parseCSVAndCalculateStats(data);
-                    if (stats === null) {
-                        reject(new Error('No valid price data'));
+                    if (res.statusCode !== 200) {
+                        console.error(`Error response: ${data.substring(0, 500)}`);
+                        reject(new Error(`HTTP ${res.statusCode}: ${data}`));
                         return;
                     }
-                    console.log(`✓ ${region} ${yearMonth}: Avg $${stats.average.toFixed(2)}, Max $${stats.max.toFixed(2)}/MWh`);
-                    resolve(stats);
+
+                    const jsonData = JSON.parse(data);
+                    console.log(`Successfully fetched data, processing...`);
+                    resolve(jsonData);
                 } catch (error) {
+                    console.error(`Parse error:`, error);
                     reject(error);
                 }
             });
-        }).on('error', (error) => {
-            console.log(`Error fetching ${region} ${yearMonth}: ${error.message}`);
+        });
+
+        req.on('error', (error) => {
+            console.error(`Request error:`, error);
             reject(error);
         });
+
+        req.setTimeout(25000, () => {
+            req.destroy();
+            reject(new Error('Request timeout'));
+        });
+
+        req.end();
     });
 }
 
 /**
- * Parse AEMO CSV and calculate price statistics
- * Returns: { average, max, priceEvents: { negative, high, extreme } }
+ * Process OpenElectricity daily data into monthly aggregates with price event analysis
  */
-function parseCSVAndCalculateStats(csvText) {
-    const lines = csvText.split('\n');
-    const prices = [];
+function processOpenElectricityResponse(apiResponse) {
+    console.log('Processing OpenElectricity response...');
     
-    // AEMO CSV format:
-    // Line 1: Header metadata
-    // Line 2: Column headers (REGION,SETTLEMENTDATE,TOTALDEMAND,RRP,PERIODTYPE)
-    // Line 3+: Data rows
-    
-    for (let i = 2; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-        
-        const columns = line.split(',');
-        
-        // RRP is in the 4th column (index 3)
-        const rrp = parseFloat(columns[3]);
-        
-        // Allow negative prices but sanity check extremes
-        if (!isNaN(rrp) && rrp >= -1000 && rrp < 100000) {
-            prices.push(rrp);
-        }
+    if (!apiResponse || !apiResponse.success || !apiResponse.data) {
+        console.error('Invalid API response structure');
+        return {};
     }
-    
-    if (prices.length === 0) {
-        return null;
-    }
-    
-    // Calculate statistics
-    const average = prices.reduce((a, b) => a + b, 0) / prices.length;
-    const max = Math.max(...prices);
-    
-    // Count price events
-    const negativeCount = prices.filter(p => p < 0).length;
-    const highCount = prices.filter(p => p >= 300 && p < 1000).length;
-    const extremeCount = prices.filter(p => p >= 1000).length;
-    
-    const totalIntervals = prices.length;
-    
-    return {
-        average,
-        max,
-        priceEvents: {
-            negative: {
-                count: negativeCount,
-                percentage: ((negativeCount / totalIntervals) * 100).toFixed(2)
-            },
-            high: {
-                count: highCount,
-                percentage: ((highCount / totalIntervals) * 100).toFixed(2)
-            },
-            extreme: {
-                count: extremeCount,
-                percentage: ((extremeCount / totalIntervals) * 100).toFixed(2)
-            }
-        }
-    };
-}
 
-/**
- * Fetch historical data for all regions
- */
-async function fetchAllRegionsData(years) {
     const regions = ['NSW1', 'VIC1', 'QLD1', 'SA1', 'TAS1'];
     const allData = {};
-    
-    // Initialize data structure
+
+    // Initialize data structures
     regions.forEach(region => {
-        allData[region] = [];
+        allData[region] = {};
     });
-    
-    const now = new Date();
-    const monthsToFetch = Math.ceil(years * 12);
-    
-    console.log(`Fetching ${monthsToFetch} months of data for ${regions.length} regions`);
-    
-    // Fetch data for each month, going backwards from now
-    for (let i = 1; i <= monthsToFetch; i++) {
-        const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const year = targetDate.getFullYear();
-        const month = targetDate.getMonth() + 1;
-        
-        // Don't try to fetch future data
-        if (targetDate > now) continue;
-        
-        // Fetch data for all regions for this month in parallel
-        const monthPromises = regions.map(async (region) => {
-            try {
-                const stats = await fetchAEMOCSV(region, year, month);
-                
-                return {
-                    region,
-                    data: {
-                        year: year,
-                        month: month,
-                        date: targetDate.toISOString(),
-                        averagePrice: parseFloat(stats.average.toFixed(2)),
-                        maxPrice: parseFloat(stats.max.toFixed(2)),
-                        priceEvents: stats.priceEvents
+
+    // Process each data point from the API
+    apiResponse.data.forEach(dataPoint => {
+        const region = dataPoint.network_region;
+        const date = new Date(dataPoint.interval);
+        const price = dataPoint.price;
+
+        if (!regions.includes(region) || price === null || price === undefined) {
+            return;
+        }
+
+        // Group by month
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+
+        if (!allData[region][monthKey]) {
+            allData[region][monthKey] = {
+                year: date.getFullYear(),
+                month: date.getMonth() + 1,
+                date: new Date(date.getFullYear(), date.getMonth(), 1).toISOString(),
+                prices: [],
+                negativeCount: 0,
+                highCount: 0,
+                extremeCount: 0,
+                highPrices: [],
+                extremePrices: []
+            };
+        }
+
+        // Add price to array
+        allData[region][monthKey].prices.push(price);
+
+        // Count price events
+        if (price < 0) {
+            allData[region][monthKey].negativeCount++;
+        } else if (price >= 300 && price < 1000) {
+            allData[region][monthKey].highCount++;
+            allData[region][monthKey].highPrices.push(price);
+        } else if (price >= 1000) {
+            allData[region][monthKey].extremeCount++;
+            allData[region][monthKey].extremePrices.push(price);
+        }
+    });
+
+    // Calculate monthly statistics
+    const result = {};
+    regions.forEach(region => {
+        result[region] = Object.values(allData[region]).map(monthData => {
+            const avgPrice = monthData.prices.reduce((a, b) => a + b, 0) / monthData.prices.length;
+            const maxPrice = Math.max(...monthData.prices);
+            const totalIntervals = monthData.prices.length;
+
+            const avgHighPrice = monthData.highPrices.length > 0
+                ? monthData.highPrices.reduce((a, b) => a + b, 0) / monthData.highPrices.length
+                : 0;
+
+            const avgExtremePrice = monthData.extremePrices.length > 0
+                ? monthData.extremePrices.reduce((a, b) => a + b, 0) / monthData.extremePrices.length
+                : 0;
+
+            return {
+                year: monthData.year,
+                month: monthData.month,
+                date: monthData.date,
+                averagePrice: parseFloat(avgPrice.toFixed(2)),
+                maxPrice: parseFloat(maxPrice.toFixed(2)),
+                priceEvents: {
+                    negative: {
+                        count: monthData.negativeCount,
+                        percentage: ((monthData.negativeCount / totalIntervals) * 100).toFixed(2)
+                    },
+                    high: {
+                        count: monthData.highCount,
+                        percentage: ((monthData.highCount / totalIntervals) * 100).toFixed(2),
+                        avgPrice: parseFloat(avgHighPrice.toFixed(2))
+                    },
+                    extreme: {
+                        count: monthData.extremeCount,
+                        percentage: ((monthData.extremeCount / totalIntervals) * 100).toFixed(2),
+                        avgPrice: parseFloat(avgExtremePrice.toFixed(2))
                     }
-                };
-            } catch (error) {
-                console.log(`Skipping ${region} ${year}-${month}: ${error.message}`);
-                return { region, data: null };
-            }
-        });
-        
-        // Wait for all regions for this month
-        const monthResults = await Promise.all(monthPromises);
-        
-        // Add successful results to allData
-        monthResults.forEach(result => {
-            if (result.data) {
-                allData[result.region].push(result.data);
-            }
-        });
-        
-        // Small delay between months
-        await new Promise(resolve => setTimeout(resolve, 50));
-    }
-    
-    // Sort each region's data by date
-    regions.forEach(region => {
-        allData[region].sort((a, b) => new Date(a.date) - new Date(b.date));
+                }
+            };
+        }).sort((a, b) => new Date(a.date) - new Date(b.date));
     });
-    
-    return allData;
+
+    console.log('Processing complete');
+    return result;
 }
 
 module.exports = async (req, res) => {
@@ -216,44 +179,69 @@ module.exports = async (req, res) => {
         return res.status(200).end();
     }
 
+    const API_KEY = process.env.OPENELECTRICITY_API_KEY;
+
+    if (!API_KEY) {
+        console.error('OPENELECTRICITY_API_KEY not set');
+        return res.status(500).json({
+            error: 'API key not configured',
+            message: 'OPENELECTRICITY_API_KEY environment variable not set'
+        });
+    }
+
     try {
         const years = parseInt(req.query.years) || 4;
         
-        // Fetch only 6 months to stay within Vercel's 30-second timeout
-        const monthsToFetch = 6;
+        console.log(`Request for ${years} years of data`);
+        console.log(`Starting data fetch from OpenElectricity...`);
         
-        console.log(`Request for ${years} years, fetching ${monthsToFetch} months (Vercel timeout limit)`);
-        console.log(`Starting data fetch from AEMO...`);
+        // Calculate date range - 4 years back from today
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setFullYear(endDate.getFullYear() - years);
         
-        const allData = await fetchAllRegionsData(monthsToFetch / 12);
+        const startDateStr = startDate.toISOString().split('T')[0];
+        const endDateStr = endDate.toISOString().split('T')[0];
+
+        console.log(`Date range: ${startDateStr} to ${endDateStr}`);
+
+        // Fetch data from OpenElectricity
+        const apiResponse = await fetchOpenElectricityData(startDateStr, endDateStr, API_KEY);
         
+        // Process into monthly aggregates
+        const allData = processOpenElectricityResponse(apiResponse);
+
         // Count total data points
         const totalPoints = Object.values(allData).reduce((sum, data) => sum + data.length, 0);
         
-        console.log(`Successfully fetched ${totalPoints} total data points`);
+        console.log(`Successfully processed ${totalPoints} months of data`);
         
         if (totalPoints === 0) {
             return res.status(404).json({
                 error: 'No data available',
-                message: 'Could not fetch any data from AEMO. The servers may be temporarily unavailable.'
+                message: 'OpenElectricity returned no data for the requested period'
             });
         }
         
         return res.status(200).json({
             data: allData,
             fetchedAt: new Date().toISOString(),
-            source: 'AEMO (Australian Energy Market Operator)',
+            source: 'OpenElectricity API (openelectricity.org.au)',
             dataPoints: totalPoints,
-            monthsFetched: monthsToFetch,
-            note: 'Limited to 6 months due to Vercel serverless timeout (30s). Each data point includes 5-minute settlement price events.'
+            yearsFetched: years,
+            dateRange: {
+                start: startDateStr,
+                end: endDateStr
+            },
+            note: 'Daily interval data from OpenElectricity aggregated into monthly statistics with price event analysis'
         });
 
     } catch (error) {
         console.error('Error in historical-all:', error);
         return res.status(500).json({
-            error: 'Failed to fetch data',
+            error: 'Failed to fetch data from OpenElectricity',
             message: error.message,
-            source: 'AEMO CSV files'
+            hint: 'Check that your API key has access to the v4 market endpoints'
         });
     }
 };
