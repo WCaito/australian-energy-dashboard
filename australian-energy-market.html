@@ -470,216 +470,128 @@
     <button class="refresh-btn" onclick="loadAllData()">Refresh</button>
 
     <script>
-        // Simulated market data (in production, this would fetch from AEMO API)
-        const regions = ['NSW', 'VIC', 'QLD', 'SA', 'TAS'];
-        
-        // Track last news update time
+        // ─── Configuration ───────────────────────────────────────────────────────
+        const PRICE_REFRESH_MS = 5 * 60 * 1000;   // 5 minutes
+        const NEWS_REFRESH_MS  = 12 * 60 * 60 * 1000; // 12 hours
+
+        const API_BASE = window.location.protocol === 'file:'
+            ? 'http://localhost:3000'
+            : window.location.origin;
+
         let lastNewsUpdate = 0;
-        const NEWS_REFRESH_INTERVAL = 12 * 60 * 60 * 1000; // 12 hours in milliseconds
-        const PRICE_REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes in milliseconds
-        
-        function generateMarketData() {
-            return regions.map(region => ({
-                region: region,
-                price: (Math.random() * 150 + 50).toFixed(2),
-                change: (Math.random() * 20 - 10).toFixed(2)
-            }));
+
+        // ─── Live Prices ─────────────────────────────────────────────────────────
+        function showPriceLoading() {
+            document.getElementById('dashboard').innerHTML =
+                '<div class="loading"><div class="spinner"></div>Fetching live NEM prices…</div>';
         }
 
         function renderDashboard(data) {
             const dashboard = document.getElementById('dashboard');
-            dashboard.innerHTML = data.map(item => `
+            dashboard.innerHTML = data.map(item => {
+                const priceNum = parseFloat(item.price);
+                const changeNum = parseFloat(item.change || 0);
+                const isNeg = changeNum < 0;
+                const priceClass = priceNum < 0 ? 'negative' : '';
+
+                return `
                 <div class="card">
                     <div class="card-header">
                         <div class="region-tag">${item.region}</div>
                     </div>
-                    <div class="price">
-                        $${item.price}
-                        <span class="price-unit">/MWh</span>
+                    <div class="price ${priceClass}">
+                        $${priceNum.toFixed(2)}<span class="price-unit">/MWh</span>
                     </div>
-                    <div class="change ${parseFloat(item.change) >= 0 ? 'positive' : 'negative'}">
-                        ${parseFloat(item.change) >= 0 ? '↑' : '↓'} ${Math.abs(item.change)}%
+                    <div class="change ${isNeg ? 'negative' : 'positive'}">
+                        ${isNeg ? '↓' : '↑'} ${Math.abs(changeNum).toFixed(1)}% vs avg
                     </div>
-                </div>
-            `).join('');
+                </div>`;
+            }).join('');
+        }
+
+        function renderPriceError(msg) {
+            document.getElementById('dashboard').innerHTML =
+                `<div class="loading" style="color:#dc2626">⚠ ${msg}</div>`;
+        }
+
+        async function loadPrices() {
+            try {
+                const resp = await fetch(`${API_BASE}/api/live-prices`);
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const result = await resp.json();
+                if (result.success && result.data && result.data.length > 0) {
+                    renderDashboard(result.data);
+                    document.getElementById('lastUpdate').textContent =
+                        new Date(result.fetchedAt || Date.now()).toLocaleString('en-AU', {
+                            timeZone: 'Australia/Sydney',
+                            dateStyle: 'medium',
+                            timeStyle: 'short',
+                        });
+                } else {
+                    throw new Error('No price data in response');
+                }
+            } catch (err) {
+                console.error('[prices]', err);
+                renderPriceError('Could not load live prices — retrying in 5 minutes');
+            }
+        }
+
+        // ─── News ────────────────────────────────────────────────────────────────
+        function showNewsLoading() {
+            document.getElementById('news').innerHTML =
+                '<div class="loading"><div class="spinner"></div>Fetching latest news…</div>';
+        }
+
+        function renderNews(articles) {
+            const news = document.getElementById('news');
+            if (!articles || articles.length === 0) {
+                news.innerHTML = '<div class="loading">No news articles available.</div>';
+                return;
+            }
+            news.innerHTML = articles.map(a => `
+                <div class="news-item" onclick="window.open('${a.url}', '_blank')" style="cursor:pointer">
+                    <div class="news-header">
+                        <span class="news-source">${a.source}</span>
+                        <span class="news-time">${a.time}</span>
+                    </div>
+                    <div class="news-categories">
+                        ${(a.categories || []).map(c =>
+                            `<span class="category-tag ${c.toLowerCase().replace(/\s+/g, '-')}">${c}</span>`
+                        ).join('')}
+                    </div>
+                    <h3 class="news-title">${a.title}</h3>
+                    <p class="news-excerpt">${a.excerpt}</p>
+                </div>`).join('');
         }
 
         async function loadNews() {
-            const newsContainer = document.getElementById('news');
-            
             try {
-                console.log('Fetching real news articles from API...');
-                
-                const API_URL = window.location.protocol === 'file:' 
-                    ? 'http://localhost:3000'
-                    : window.location.origin;
-                
-                const response = await fetch(`${API_URL}/api/news`);
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                
-                const result = await response.json();
-                
-                if (result.success && result.articles && result.articles.length > 0) {
-                    console.log(`Loaded ${result.articles.length} real articles`);
-                    
-                    const newsHTML = result.articles.map(article => `
-                        <div class="news-item" onclick="window.open('${article.url}', '_blank')">
-                            <div class="news-header">
-                                <span class="news-source">${article.source}</span>
-                                <span class="news-time">${article.time}</span>
-                            </div>
-                            <div class="news-categories">
-                                ${article.categories.map(cat => 
-                                    `<span class="category-tag ${cat.toLowerCase()}">${cat}</span>`
-                                ).join('')}
-                            </div>
-                            <h3 class="news-title">${article.title}</h3>
-                            <p class="news-excerpt">${article.excerpt}</p>
-                        </div>
-                    `).join('');
-                    
-                    newsContainer.innerHTML = newsHTML;
+                const resp = await fetch(`${API_BASE}/api/news`);
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const result = await resp.json();
+                if (result.articles && result.articles.length > 0) {
+                    renderNews(result.articles);
+                    lastNewsUpdate = Date.now();
                 } else {
-                    // Fallback to demo news
-                    newsContainer.innerHTML = parseDemoNews();
+                    throw new Error('No articles in response');
                 }
-                
-                lastNewsUpdate = Date.now();
-                
-            } catch (error) {
-                console.error('Error loading news:', error);
-                newsContainer.innerHTML = parseDemoNews();
-                lastNewsUpdate = Date.now();
+            } catch (err) {
+                console.error('[news]', err);
+                document.getElementById('news').innerHTML =
+                    '<div class="loading" style="color:#dc2626">⚠ Could not load news articles.</div>';
             }
         }
 
-        // Fallback demo news items
-            const demoArticles = [
-                {
-                    source: 'Australian Financial Review',
-                    time: '2 hours ago',
-                    title: 'Energy prices surge as coal plants face unplanned outages',
-                    excerpt: 'Wholesale electricity prices across the National Electricity Market have jumped sharply after two major coal-fired power stations reported unexpected capacity reductions during the evening peak demand period.',
-                    url: '#',
-                    categories: ['Markets', 'Infrastructure']
-                },
-                {
-                    source: 'AEMO',
-                    time: '5 hours ago',
-                    title: 'Record renewable generation drives down afternoon prices',
-                    excerpt: 'Solar and wind generation hit a new record on Tuesday, pushing wholesale electricity prices into negative territory during the middle of the day across multiple states.',
-                    url: '#',
-                    categories: ['Renewables', 'Markets']
-                },
-                {
-                    source: 'Australian Financial Review',
-                    time: '8 hours ago',
-                    title: 'Gas shortage warning issued for winter peak',
-                    excerpt: 'The Australian Energy Market Operator has warned of potential gas supply shortfalls during winter as domestic demand increases and LNG export commitments remain high.',
-                    url: '#',
-                    categories: ['Markets', 'Policy']
-                },
-                {
-                    source: 'RenewEconomy',
-                    time: '12 hours ago',
-                    title: 'Battery storage projects receive $2bn in federal funding',
-                    excerpt: 'The government announced a major funding package for grid-scale battery storage projects as part of its commitment to support the energy transition and ensure system reliability.',
-                    url: 'https://www.minister.industry.gov.au/ministers',
-                    categories: ['Government', 'Technology', 'Renewables']
-                },
-                {
-                    source: 'Australian Financial Review',
-                    time: '1 day ago',
-                    title: 'NSW considers extending coal plant life amid reliability concerns',
-                    excerpt: 'The New South Wales government is reportedly in discussions with power station operators about delaying planned closures of coal-fired generators to maintain grid stability.',
-                    url: 'https://www.afr.com/companies/energy',
-                    categories: ['Government', 'Policy', 'Infrastructure']
-                },
-                {
-                    source: 'The Guardian Australia',
-                    time: '1 day ago',
-                    title: 'Offshore wind zone declared for Victoria',
-                    excerpt: 'The federal government has formally declared an offshore wind zone off the Gippsland coast, paving the way for large-scale renewable energy development in Bass Strait.',
-                    url: 'https://www.theguardian.com/australia-news/energy',
-                    categories: ['Government', 'Renewables', 'Policy']
-                },
-                {
-                    source: 'Sydney Morning Herald',
-                    time: '2 days ago',
-                    title: 'Major energy retailer announces price increases for households',
-                    excerpt: 'One of Australia\'s largest electricity retailers has notified customers of price increases averaging 15% from next month, citing higher wholesale costs and network charges.',
-                    url: 'https://www.smh.com.au/business/the-economy/energy',
-                    categories: ['Customers', 'Pricing']
-                },
-                {
-                    source: 'Australian Financial Review',
-                    time: '2 days ago',
-                    title: 'Transmission network upgrade to cost $20 billion',
-                    excerpt: 'Energy Ministers have approved a significant expansion of transmission infrastructure to connect renewable energy zones, with costs to be recovered through network charges over the coming decades.',
-                    url: 'https://www.afr.com/companies/energy',
-                    categories: ['Infrastructure', 'Government', 'Policy']
-                }
-            ];
+        // ─── Bootstrap ───────────────────────────────────────────────────────────
+        showPriceLoading();
+        showNewsLoading();
+        loadPrices();
+        loadNews();
 
-            return demoArticles.map(article => `
-                <div class="news-item" onclick="window.open('${article.url}', '_blank')">
-                    <div class="news-header">
-                        <span class="news-source">${article.source}</span>
-                        <span class="news-time">${article.time}</span>
-                    </div>
-                    <div class="news-categories">
-                        ${article.categories.map(cat => 
-                            `<span class="category-tag ${cat.toLowerCase()}">${cat}</span>`
-                        ).join('')}
-                    </div>
-                    <h3 class="news-title">${article.title}</h3>
-                    <p class="news-excerpt">${article.excerpt}</p>
-                </div>
-            `).join('');
-        }
-
-        function updateTimestamp() {
-            const now = new Date();
-            document.getElementById('lastUpdate').textContent = now.toLocaleString('en-AU', {
-                timeZone: 'Australia/Sydney',
-                dateStyle: 'medium',
-                timeStyle: 'short'
-            });
-        }
-
-        function loadPrices() {
-            const marketData = generateMarketData();
-            renderDashboard(marketData);
-            updateTimestamp();
-        }
-
-        function loadAllData() {
-            // Always load prices
-            loadPrices();
-            
-            // Only load news if it's been 12 hours or never loaded
-            const now = Date.now();
-            if (now - lastNewsUpdate >= NEWS_REFRESH_INTERVAL || lastNewsUpdate === 0) {
-                loadNews();
-            }
-        }
-
-        // Initial load
-        loadAllData();
-
-        // Refresh prices every 5 minutes
-        setInterval(loadPrices, PRICE_REFRESH_INTERVAL);
-
-        // Refresh news every 12 hours
+        setInterval(loadPrices, PRICE_REFRESH_MS);
         setInterval(() => {
-            const now = Date.now();
-            if (now - lastNewsUpdate >= NEWS_REFRESH_INTERVAL) {
-                loadNews();
-            }
-        }, NEWS_REFRESH_INTERVAL);
+            if (Date.now() - lastNewsUpdate >= NEWS_REFRESH_MS) loadNews();
+        }, NEWS_REFRESH_MS);
     </script>
 </body>
 </html>
