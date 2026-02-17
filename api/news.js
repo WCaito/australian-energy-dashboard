@@ -1,108 +1,142 @@
 /**
- * Fetch real Australian energy news articles using web search
- * This serverless function searches for recent energy news and returns formatted articles
+ * news.js — Fetch real Australian energy news via GNews API
+ *
+ * Requires: GNEWS_API_KEY environment variable (free at https://gnews.io)
+ * Free tier: 100 requests/day. Dashboard caches for 30 min so ~2 req/day.
  */
 
-module.exports = async (req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+module.exports = async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Cache-Control', 's-maxage=1800, stale-while-revalidate');
 
-    if (req.method === 'OPTIONS') {
-        return res.status(200).end();
+  if (req.method === 'OPTIONS') return res.status(200).end();
+
+  const GNEWS_API_KEY = process.env.GNEWS_API_KEY;
+
+  if (!GNEWS_API_KEY) {
+    return res.status(200).json({
+      success: true,
+      articles: [{
+        source: 'Setup Required',
+        time: 'Now',
+        title: 'Add GNEWS_API_KEY to see real energy news',
+        excerpt: 'Get a free API key at gnews.io (100 requests/day) and add it to your Vercel environment variables as GNEWS_API_KEY.',
+        url: 'https://gnews.io/',
+        categories: ['Setup'],
+        publishedAt: new Date().toISOString(),
+      }],
+      fetchedAt: new Date().toISOString(),
+      source: 'Fallback — GNEWS_API_KEY not set',
+      count: 1,
+    });
+  }
+
+  try {
+    const url = new URL('https://gnews.io/api/v4/search');
+    url.searchParams.set('q', 'Australian energy electricity renewable solar wind');
+    url.searchParams.set('lang', 'en');
+    url.searchParams.set('country', 'au');
+    url.searchParams.set('max', '8');
+    url.searchParams.set('sortby', 'publishedAt');
+    url.searchParams.set('apikey', GNEWS_API_KEY);
+
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), 8000);
+
+    const response = await fetch(url.toString(), {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    });
+    clearTimeout(tid);
+
+    if (!response.ok) {
+      throw new Error(`GNews returned ${response.status}`);
     }
 
-    try {
-        console.log('Fetching real energy news articles...');
+    const data = await response.json();
 
-        // Since we can't directly use web_search in serverless functions,
-        // we'll need to use a news API service
-        // For now, let's create a curated list of real recent articles
-        // In production, you would integrate with News API, Google News API, or similar
-
-        const articles = [
-            {
-                source: 'AEMO',
-                time: '2 hours ago',
-                title: 'Record renewable energy generation in NEM',
-                excerpt: 'The National Electricity Market has recorded its highest ever instantaneous renewable energy penetration, with wind and solar combining to supply over 70% of grid demand during optimal conditions.',
-                url: 'https://www.aemo.com.au/newsroom',
-                categories: ['Renewable', 'Solar', 'Wind']
-            },
-            {
-                source: 'Australian Financial Review',
-                time: '4 hours ago',
-                title: 'Energy retailers face margin squeeze as wholesale prices fall',
-                excerpt: 'Major electricity retailers report compressed profit margins as wholesale spot prices decline due to increased renewable generation, while fixed retail contract prices remain elevated.',
-                url: 'https://www.afr.com/companies/energy',
-                categories: ['Market', 'Price', 'Retail']
-            },
-            {
-                source: 'The Guardian',
-                time: '6 hours ago',
-                title: 'Battery storage projects accelerate across eastern states',
-                excerpt: 'A wave of large-scale battery energy storage systems are under construction across NSW, Victoria and Queensland, with total capacity expected to exceed 5GW by 2026.',
-                url: 'https://www.theguardian.com/australia-news/energy',
-                categories: ['Battery', 'Storage', 'Infrastructure']
-            },
-            {
-                source: 'RenewEconomy',
-                time: '8 hours ago',
-                title: 'Negative pricing events increase as solar dominates midday',
-                excerpt: 'South Australia and Queensland experience growing frequency of negative wholesale prices during solar peak hours, creating opportunities for flexible demand and storage.',
-                url: 'https://reneweconomy.com.au/',
-                categories: ['Solar', 'Price', 'Market']
-            },
-            {
-                source: 'ABC News',
-                time: '10 hours ago',
-                title: 'Coal plant closure brings forward amid economic pressures',
-                excerpt: 'AGL announces the early retirement of one of its remaining coal units in NSW, citing increasing operational costs and declining capacity factors as renewable generation expands.',
-                url: 'https://www.abc.net.au/news/energy',
-                categories: ['Coal', 'Infrastructure', 'Policy']
-            },
-            {
-                source: 'Sydney Morning Herald',
-                time: '12 hours ago',
-                title: 'NSW unveils renewable energy zone transmission plan',
-                excerpt: 'The NSW government has released detailed plans for transmission infrastructure to connect five renewable energy zones, with construction to begin on the Central West Orana link in early 2025.',
-                url: 'https://www.smh.com.au/business/the-economy/energy',
-                categories: ['Infrastructure', 'Government', 'Renewable']
-            },
-            {
-                source: 'Energy News Bulletin',
-                time: '1 day ago',
-                title: 'Demand response programs expand as grid flexibility grows',
-                excerpt: 'AEMO reports significant growth in demand response registrations as commercial and industrial users increasingly participate in grid services and wholesale market opportunities.',
-                url: 'https://www.energynewsbulletin.net/',
-                categories: ['Technology', 'Market', 'Grid']
-            },
-            {
-                source: 'Australian Financial Review',
-                time: '1 day ago',
-                title: 'Offshore wind zone attracts international investment interest',
-                excerpt: 'The newly declared Gippsland offshore wind zone has drawn expressions of interest from major European wind developers, with total proposed capacity exceeding 10GW.',
-                url: 'https://www.afr.com/companies/energy',
-                categories: ['Renewable', 'Wind', 'Investment']
-            }
-        ];
-
-        console.log(`Returning ${articles.length} curated articles`);
-
-        return res.status(200).json({
-            success: true,
-            articles: articles,
-            fetchedAt: new Date().toISOString(),
-            source: 'Curated energy news feed',
-            count: articles.length
-        });
-
-    } catch (error) {
-        console.error('Error fetching news:', error);
-        return res.status(500).json({
-            success: false,
-            error: 'Failed to fetch news articles',
-            message: error.message
-        });
+    if (!data.articles || data.articles.length === 0) {
+      throw new Error('No articles in GNews response');
     }
+
+    const articles = data.articles.map(a => ({
+      source: mapSource(a.source),
+      time: timeAgo(new Date(a.publishedAt)),
+      title: a.title,
+      excerpt: a.description || a.title,
+      url: a.url,
+      categories: categorise(a.title + ' ' + (a.description || '')),
+      publishedAt: a.publishedAt,
+      image: a.image || null,
+    }));
+
+    return res.status(200).json({
+      success: true,
+      articles,
+      fetchedAt: new Date().toISOString(),
+      source: 'GNews API',
+      count: articles.length,
+    });
+  } catch (err) {
+    console.error('[news] Error:', err.message);
+    return res.status(200).json({
+      success: true,
+      articles: [{
+        source: 'API Error',
+        time: 'Now',
+        title: 'Could not load news — GNews API error',
+        excerpt: `Error: ${err.message}. Check your GNEWS_API_KEY is valid and the daily quota (100 req) hasn't been exceeded.`,
+        url: 'https://gnews.io/dashboard',
+        categories: ['Error'],
+        publishedAt: new Date().toISOString(),
+      }],
+      fetchedAt: new Date().toISOString(),
+      source: 'Fallback — GNews error',
+      count: 1,
+      error: err.message,
+    });
+  }
 };
+
+function mapSource(source) {
+  if (!source) return 'News';
+  const u = (source.url || '').toLowerCase();
+  const n = source.name || '';
+  if (u.includes('afr.com')) return 'Australian Financial Review';
+  if (u.includes('abc.net.au')) return 'ABC News';
+  if (u.includes('smh.com.au')) return 'Sydney Morning Herald';
+  if (u.includes('theage.com.au')) return 'The Age';
+  if (u.includes('theguardian.com')) return 'The Guardian Australia';
+  if (u.includes('reneweconomy.com')) return 'RenewEconomy';
+  if (u.includes('aemo.com.au')) return 'AEMO';
+  if (u.includes('energynewsbulletin')) return 'Energy News Bulletin';
+  if (u.includes('pv-magazine')) return 'PV Magazine';
+  return n || 'News';
+}
+
+function timeAgo(date) {
+  const diff = Date.now() - date.getTime();
+  const mins = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+  if (mins < 60) return mins <= 1 ? 'Just now' : `${mins} minutes ago`;
+  if (hours < 24) return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
+  if (days === 1) return '1 day ago';
+  if (days < 7) return `${days} days ago`;
+  return date.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+}
+
+function categorise(text) {
+  const t = text.toLowerCase();
+  const cats = [];
+  if (/\b(solar|wind|renewable|hydro|battery|storage)\b/.test(t)) cats.push('Renewable');
+  if (/\b(coal|gas|fossil|oil)\b/.test(t)) cats.push('Fossil Fuels');
+  if (/\b(price|cost|bill|tariff|spot)\b/.test(t)) cats.push('Pricing');
+  if (/\b(grid|transmission|network|interconnector)\b/.test(t)) cats.push('Infrastructure');
+  if (/\b(policy|government|regulation|minister|legislation)\b/.test(t)) cats.push('Policy');
+  if (/\b(market|trading|aemo|nem|dispatch)\b/.test(t)) cats.push('Market');
+  if (cats.length === 0) cats.push('Energy');
+  return cats.slice(0, 3);
+}
