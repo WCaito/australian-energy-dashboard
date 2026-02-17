@@ -1,20 +1,25 @@
-/** historical-all.js (v4.2 - Vercel fetch-based) */
+/** historical-all.js (v4.3 - Vercel Edge Compatible) */
 const OE_BASE = process.env.OPENELECTRICITY_API_URL || 'https://api.openelectricity.org.au/v4';
 const REGIONS = ['NSW1','VIC1','QLD1','SA1','TAS1'];
 
 function isoMidnightUTC(d){ 
-  const dt=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate(),0,0,0,0)); 
-  return dt.toISOString().replace(/\.\d{3}Z$/,'Z'); 
+  const dt = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0)); 
+  return dt.toISOString().replace(/\.\d{3}Z$/, 'Z'); 
 }
 
-async function requestUpstreamWithRedirects(url, headers, maxRedirects=3){
+async function requestUpstreamWithRedirects(url, headers){
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+  
   try {
     const response = await fetch(url, {
       method: 'GET',
       headers: headers,
       redirect: 'follow',
-      signal: AbortSignal.timeout(30000)
+      signal: controller.signal
     });
+    
+    clearTimeout(timeoutId);
     
     const requestId = response.headers.get('x-request-id') || response.headers.get('X-Request-ID');
     
@@ -38,9 +43,11 @@ async function requestUpstreamWithRedirects(url, headers, maxRedirects=3){
     };
     
   } catch(e) {
+    clearTimeout(timeoutId);
+    
     if (e.type === 'UPSTREAM') throw e;
     
-    if (e.name === 'AbortError' || e.name === 'TimeoutError') {
+    if (e.name === 'AbortError') {
       const error = new Error('Request timeout');
       error.type = 'TIMEOUT';
       error.url = url.toString();
@@ -77,17 +84,17 @@ async function fetchOpenElectricityData(startISO, endISO, apiKey, mode, interval
       date_start: startISO,
       date_end: endISO
     });
-    if(grouped) params.set('primary_grouping', 'network_region');
+    if (grouped) params.set('primary_grouping', 'network_region');
     const url = `${OE_BASE}/data/network/NEM?${params.toString()}`;
     return requestUpstreamWithRedirects(url, headers);
   }
   
   try {
-    if(mode === 'ungrouped') return await doRequest(false);
-    if(mode === 'grouped') return await doRequest(true);
+    if (mode === 'ungrouped') return await doRequest(false);
+    if (mode === 'grouped') return await doRequest(true);
     return await doRequest(true);
   } catch(e) {
-    if(e && e.type === 'UPSTREAM' && e.status >= 500 && mode !== 'grouped'){
+    if (e && e.type === 'UPSTREAM' && e.status >= 500 && mode !== 'grouped') {
       return await doRequest(false);
     }
     throw e;
@@ -96,30 +103,30 @@ async function fetchOpenElectricityData(startISO, endISO, apiKey, mode, interval
 
 function processResponse(apiResponse){
   const { json } = apiResponse || {}; 
-  if(!json || json.success === false) return {};
-  if(!Array.isArray(json.data)) return {};
+  if (!json || json.success === false) return {};
+  if (!Array.isArray(json.data)) return {};
   
   const buckets = Object.fromEntries(REGIONS.map(r => [r, {}]));
   
   json.data.forEach(series => {
-    if((series.metric || '').toLowerCase() !== 'price') return;
-    if(!Array.isArray(series.results)) return;
+    if ((series.metric || '').toLowerCase() !== 'price') return;
+    if (!Array.isArray(series.results)) return;
     
     series.results.forEach(r => {
       const region = r?.columns?.network_region || r?.name || r?.id; 
-      if(!region || !REGIONS.includes(region)) return;
+      if (!region || !REGIONS.includes(region)) return;
       
       const points = Array.isArray(r.data) ? r.data : (Array.isArray(r.history) ? r.history : []);
       
       points.forEach(pt => {
         const ts = pt.timestamp || pt.interval; 
         const val = pt.value; 
-        if(val == null) return;
+        if (val == null) return;
         
         const d = new Date(ts); 
         const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
         
-        if(!buckets[region][key]) {
+        if (!buckets[region][key]) {
           buckets[region][key] = {
             year: d.getUTCFullYear(),
             month: d.getUTCMonth() + 1,
@@ -136,12 +143,12 @@ function processResponse(apiResponse){
         const m = buckets[region][key]; 
         m.prices.push(val);
         
-        if(val < 0) {
+        if (val < 0) {
           m.negativeCount++;
-        } else if(val >= 300 && val < 1000) { 
+        } else if (val >= 300 && val < 1000) { 
           m.highCount++; 
           m.highPrices.push(val);
-        } else if(val >= 1000) { 
+        } else if (val >= 1000) { 
           m.extremeCount++; 
           m.extremePrices.push(val);
         } 
@@ -190,27 +197,33 @@ function processResponse(apiResponse){
   return out;
 }
 
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
+  // Set CORS headers first
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   res.setHeader('Vary', 'Origin');
   
-  if(req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
 
   const API_KEY = process.env.OPENELECTRICITY_API_KEY;
-  if(!API_KEY) return res.status(500).json({ error: 'API key not configured' });
+  if (!API_KEY) {
+    return res.status(500).json({ error: 'API key not configured' });
+  }
   
   try {
     let years = parseInt(req.query.years, 10); 
-    if(!Number.isFinite(years) || years <= 0) years = 4; 
-    if(years > 5) years = 5;
+    if (!Number.isFinite(years) || years <= 0) years = 4; 
+    if (years > 5) years = 5;
     
     const mode = (req.query.group || 'auto').toLowerCase(); 
     const interval = req.query.interval;
-    let startISO = req.query.date_start, endISO = req.query.date_end;
+    let startISO = req.query.date_start;
+    let endISO = req.query.date_end;
     
-    if(!startISO || !endISO) { 
+    if (!startISO || !endISO) { 
       const end = new Date(); 
       end.setUTCDate(end.getUTCDate() - 2); 
       const start = new Date(end); 
@@ -223,7 +236,7 @@ module.exports = async (req, res) => {
     const processed = processResponse(apiResponse);
     const totalMonths = Object.values(processed).reduce((s, arr) => s + (Array.isArray(arr) ? arr.length : 0), 0);
     
-    if(!totalMonths) {
+    if (!totalMonths) {
       return res.status(404).json({ 
         error: 'No data after processing', 
         startISO, 
@@ -242,7 +255,7 @@ module.exports = async (req, res) => {
     });
     
   } catch(e) {
-    if(e && e.type === 'UPSTREAM') {
+    if (e && e.type === 'UPSTREAM') {
       return res.status(e.status || 502).json({ 
         error: 'Upstream API error', 
         upstreamStatus: e.status, 
@@ -251,20 +264,20 @@ module.exports = async (req, res) => {
         url: e.url 
       });
     }
-    if(e && e.type === 'PARSE') {
+    if (e && e.type === 'PARSE') {
       return res.status(502).json({ 
         error: 'Failed to parse upstream response', 
         upstreamBodySnippet: e.bodySnippet, 
         url: e.url 
       });
     }
-    if(e && e.type === 'TIMEOUT') {
+    if (e && e.type === 'TIMEOUT') {
       return res.status(504).json({ 
         error: 'Upstream timeout', 
         url: e.url 
       });
     }
-    if(e && e.type === 'NETWORK') {
+    if (e && e.type === 'NETWORK') {
       return res.status(502).json({ 
         error: 'Network error to upstream', 
         message: e.error?.message, 
@@ -278,4 +291,4 @@ module.exports = async (req, res) => {
       message: e?.message || String(e) 
     });
   }
-};
+}
