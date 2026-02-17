@@ -72,21 +72,344 @@
   </div>
 
   <script>
-    const API_URL = "https://australian-energy-dashboard.vercel.app"; // hard-set to deployed origin
-    async function fetchWithTimeout(resource, options = {}) { const { timeout = 20000 } = options; const controller = new AbortController(); const id = setTimeout(() => controller.abort(), timeout); try { const resp = await fetch(resource, { ...options, signal: controller.signal }); return resp; } finally { clearTimeout(id); } }
-    const regions = [ { code:'NSW1',name:'New South Wales',aemoCode:'NSW1',color:'#2563eb' }, { code:'VIC1',name:'Victoria',aemoCode:'VIC1',color:'#7c3aed' }, { code:'QLD1',name:'Queensland',aemoCode:'QLD1',color:'#dc2626' }, { code:'SA1',name:'South Australia',aemoCode:'SA1',color:'#059669' }, { code:'TAS1',name:'Tasmania',aemoCode:'TAS1',color:'#ea580c' } ];
-    let charts = {}; let cachedRealData = null; const statusEl = document.getElementById('statusLine'); function setStatus(html, ok=false){ statusEl.innerHTML = ok? `<span class=\"ok\">✔ ${html}</span>` : `<span class=\"err\">✖ ${html}</span>`; }
-    function updateDataSourceNotice(msg){ const n=document.getElementById('dataSourceNotice'); const t=document.getElementById('dataSourceText'); t.textContent=msg; n.style.display='block'; }
-    async function loadHistoricalData(){ try{ const url = `${API_URL}/api/historical-all?years=4`; const response = await fetchWithTimeout(url,{ timeout:20000 }); if(!response.ok){ const e=await response.json().catch(()=>({})); const msg=e.message||e.error||'Unknown error'; setStatus(`Fetch failed (${response.status}): ${msg}`); throw new Error(`HTTP ${response.status}: ${msg}`); } const result = await response.json(); if(!result.data){ setStatus('No data returned from server.'); throw new Error('No data returned from server'); } const data={}; regions.forEach(r=>{ const rd=result.data[r.aemoCode]; data[r.code]=Array.isArray(rd)? rd.map(it=>({ date:new Date(it.date), averagePrice:it.averagePrice, maxPrice:it.maxPrice, priceEvents:it.priceEvents })) : []; }); const has=Object.values(data).some(a=>a.length>0); if(!has){ setStatus('No valid data received for any region.'); throw new Error('No valid data received for any region'); } updateDataSourceNotice('✓ Real data from OpenElectricity API (v4). Grouped by region and aggregated monthly.'); setStatus('Data loaded successfully.', true); return data; } catch(err){ console.error(err); if(!statusEl.innerText) setStatus(err.message); throw err; } }
-    function calculateStats(d){ const a=d.map(x=>x.averagePrice), m=d.map(x=>x.maxPrice); return { average:(a.reduce((p,c)=>p+c,0)/a.length).toFixed(2), peak:Math.max(...m).toFixed(2), lowest:Math.min(...a).toFixed(2) }; }
-    function aggregatePriceEvents(d){ const t={ negative:{count:0,percentage:0}, high:{count:0,percentage:0}, extreme:{count:0,percentage:0} }; d.forEach(it=>{ if(it.priceEvents){ t.negative.count+=parseInt(it.priceEvents.negative.count)||0; t.high.count+=parseInt(it.priceEvents.high.count)||0; t.extreme.count+=parseInt(it.priceEvents.extreme.count)||0; } }); const total=d.length*30*24*12; t.negative.percentage=((t.negative.count/total)*100).toFixed(2); t.high.percentage=((t.high.count/total)*100).toFixed(2); t.extreme.percentage=((t.extreme.count/total)*100).toFixed(2); return t; }
-    function createPriceEventsTable(e){ return `<div class=\"table-title\">Price Events Analysis</div><table class=\"price-events-table\"><thead><tr><th>Event Type</th><th>Count</th><th>% of Period</th></tr></thead><tbody><tr><td>Negative Prices (&lt; $0/MWh)</td><td><span class=\"event-count\">${Number(e.negative.count).toLocaleString()}</span></td><td><span class=\"event-percentage\">${e.negative.percentage}%</span></td></tr><tr><td>High Prices ($300 - $1,000/MWh)</td><td><span class=\"event-count\">${Number(e.high.count).toLocaleString()}</span></td><td><span class=\"event-percentage\">${e.high.percentage}%</span></td></tr><tr><td>Extreme Prices (≥ $1,000/MWh)</td><td><span class=\"event-count\">${Number(e.extreme.count).toLocaleString()}</span></td><td><span class=\"event-percentage\">${e.extreme.percentage}%</span></td></tr></tbody></table>`; }
-    function createChart(region,data,chartType){ const cv=document.getElementById(`chart-${region.code}`); if(!cv) return; const ctx=cv.getContext('2d'); if(charts[region.code]) charts[region.code].destroy(); const labels=data.map(d=>d.date.toLocaleDateString('en-AU',{year:'numeric',month:'short'})); charts[region.code]=new Chart(ctx,{ type:chartType, data:{ labels, datasets:[ { label:'Average Price', data:data.map(d=>d.averagePrice), borderColor:region.color, backgroundColor:chartType==='bar'? region.color+'40':region.color+'20', borderWidth:2, fill:chartType==='line', tension:.4, pointRadius:0, pointHoverRadius:5, pointHoverBackgroundColor:region.color, pointHoverBorderColor:'#fff', pointHoverBorderWidth:2, yAxisID:'y' }, { label:'Maximum Price', data:data.map(d=>d.maxPrice), borderColor:'#dc2626', backgroundColor:chartType==='bar'? '#dc262640':'transparent', borderWidth:2, borderDash:[5,5], fill:false, tension:.4, pointRadius:0, pointHoverRadius:5, pointHoverBackgroundColor:'#dc2626', pointHoverBorderColor:'#fff', pointHoverBorderWidth:2, yAxisID:'y1' } ] }, options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false}, plugins:{ legend:{ display:true, position:'top', labels:{ usePointStyle:true, padding:15, font:{size:12} } }, tooltip:{ backgroundColor:'#1a1a1a', titleColor:'#fff', bodyColor:'#e5e5e5', borderColor:'#666', borderWidth:1, padding:12, displayColors:true, callbacks:{ label:(c)=> (c.dataset.label? c.dataset.label+': ':'')+'$'+c.parsed.y.toFixed(2)+' /MWh' } } }, scales:{ x:{ grid:{display:false}, ticks:{ maxTicksLimit:12, color:'#999', font:{size:11} } }, y:{ type:'linear', display:true, position:'left', beginAtZero:false, grid:{color:'#e5e5e5'}, ticks:{ color:'#999', callback:v=>'$'+v, font:{size:11} }, title:{ display:true, text:'Average Price ($/MWh)', color:'#666', font:{ size:12, weight:'500' } } }, y1:{ type:'linear', display:true, position:'right', beginAtZero:false, grid:{ drawOnChartArea:false }, ticks:{ color:'#999', callback:v=>'$'+v, font:{size:11} }, title:{ display:true, text:'Maximum Price ($/MWh)', color:'#dc2626', font:{ size:12, weight:'500' } } } } } }); }
-    function createNeg(region,data){ const cv=document.getElementById(`chart-negative-${region.code}`); if(!cv) return; const ctx=cv.getContext('2d'); const key=`${region.code}-negative`; if(charts[key]) charts[key].destroy(); const labels=data.map(d=>d.date.toLocaleDateString('en-AU',{year:'numeric',month:'short'})); const counts=data.map(d=> d.priceEvents? parseInt(d.priceEvents.negative.count)||0:0 ); charts[key]=new Chart(ctx,{ type:'bar', data:{ labels, datasets:[{ label:'Negative Price Events', data:counts, backgroundColor:'#0891b2', borderColor:'#0e7490', borderWidth:1 }] }, options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false}, tooltip:{ backgroundColor:'#1a1a1a', callbacks:{ label:(c)=> 'Events: '+c.parsed.y.toLocaleString() } } }, scales:{ x:{ grid:{display:false}, ticks:{ maxTicksLimit:6, color:'#999', font:{size:10} } }, y:{ beginAtZero:true, grid:{color:'#e5e5e5'}, ticks:{color:'#999', font:{size:10}}, title:{ display:true, text:'Number of Events', color:'#666', font:{ size:11, weight:'500' } } } } } }); }
-    function createHigh(region,data){ const cv=document.getElementById(`chart-high-${region.code}`); if(!cv) return; const ctx=cv.getContext('2d'); const key=`${region.code}-high`; if(charts[key]) charts[key].destroy(); const labels=data.map(d=>d.date.toLocaleDateString('en-AU',{year:'numeric',month:'short'})); const counts=data.map(d=> d.priceEvents? parseInt(d.priceEvents.high.count)||0:0 ); const avg=data.map(d=> (d.priceEvents && d.priceEvents.high.avgPrice && d.priceEvents.high.avgPrice>0)? d.priceEvents.high.avgPrice:null ); charts[key]=new Chart(ctx,{ type:'bar', data:{ labels, datasets:[ { label:'Event Count', data:counts, backgroundColor:'#f59e0b', borderColor:'#d97706', borderWidth:1, yAxisID:'y' }, { label:'Avg Event Price', data:avg, type:'line', borderColor:'#dc2626', backgroundColor:'transparent', borderWidth:2, tension:.4, pointRadius:3, pointHoverRadius:5, yAxisID:'y1', spanGaps:true } ] }, options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false}, plugins:{ legend:{ display:true, position:'top', labels:{ usePointStyle:true, padding:10, font:{size:10} } }, tooltip:{ backgroundColor:'#1a1a1a', callbacks:{ label:(c)=> c.dataset.label==='Event Count'? 'Events: '+c.parsed.y.toLocaleString(): 'Avg: $'+c.parsed.y.toFixed(2)+'/MWh' } } }, scales:{ x:{ grid:{display:false}, ticks:{ maxTicksLimit:6, color:'#999', font:{size:10} } }, y:{ type:'linear', display:true, position:'left', beginAtZero:true, grid:{color:'#e5e5e5'}, ticks:{color:'#999', font:{size:10}}, title:{ display:true, text:'Event Count', color:'#666', font:{ size:11, weight:'500' } } }, y1:{ type:'linear', display:true, position:'right', beginAtZero:false, grid:{ drawOnChartArea:false }, ticks:{ color:'#999', callback:v=>'$'+v, font:{size:10} }, title:{ display:true, text:'Avg Price ($/MWh)', color:'#dc2626', font:{ size:11, weight:'500' } } } } } }); }
-    function createExtreme(region,data){ const cv=document.getElementById(`chart-extreme-${region.code}`); if(!cv) return; const ctx=cv.getContext('2d'); const key=`${region.code}-extreme`; if(charts[key]) charts[key].destroy(); const labels=data.map(d=>d.date.toLocaleDateString('en-AU',{year:'numeric',month:'short'})); const counts=data.map(d=> d.priceEvents? parseInt(d.priceEvents.extreme.count)||0:0 ); const avg=data.map(d=> (d.priceEvents && d.priceEvents.extreme.avgPrice && d.priceEvents.extreme.avgPrice>0)? d.priceEvents.extreme.avgPrice:null ); charts[key]=new Chart(ctx,{ type:'bar', data:{ labels, datasets:[ { label:'Event Count', data:counts, backgroundColor:'#dc2626', borderColor:'#b91c1c', borderWidth:1, yAxisID:'y' }, { label:'Avg Event Price', data:avg, type:'line', borderColor:'#7c2d12', backgroundColor:'transparent', borderWidth:2, tension:.4, pointRadius:3, pointHoverRadius:5, yAxisID:'y1', spanGaps:true } ] }, options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false}, plugins:{ legend:{ display:true, position:'top', labels:{ usePointStyle:true, padding:10, font:{size:10} } }, tooltip:{ backgroundColor:'#1a1a1a', callbacks:{ label:(c)=> c.dataset.label==='Event Count'? 'Events: '+c.parsed.y.toLocaleString(): 'Avg: $'+c.parsed.y.toFixed(2)+'/MWh' } } }, scales:{ x:{ grid:{display:false}, ticks:{ maxTicksLimit:6, color:'#999', font:{size:10} } }, y:{ type:'linear', display:true, position:'left', beginAtZero:true, grid:{color:'#e5e5e5'}, ticks:{color:'#999', font:{size:10}}, title:{ display:true, text:'Event Count', color:'#666', font:{ size:11, weight:'500' } } }, y1:{ type:'linear', display:true, position:'right', beginAtZero:false, grid:{ drawOnChartArea:false }, ticks:{ color:'#999', callback:v=>'$'+v, font:{size:10} }, title:{ display:true, text:'Avg Price ($/MWh)', color:'#7c2d12', font:{ size:11, weight:'500' } } } } } }); }
-    async function renderCharts(){ const chartType=document.getElementById('chartType').value; const container=document.getElementById('chartsContainer'); container.innerHTML='<div class=\"loading\"><div class=\"spinner\"></div>Loading historical data from OpenElectricity API...</div>'; try{ if(!cachedRealData) cachedRealData=await loadHistoricalData(); const all=cachedRealData; container.innerHTML = regions.map(r=>{ const rd=all[r.code]; if(!rd||rd.length===0){ return `<div class=\"chart-container\"><div class=\"chart-header\"><h2 class=\"chart-title\">${r.name} (${r.code})</h2></div><div style=\"padding:40px;text-align:center;color:#999;\">No data available for this region</div></div>`; } const st=calculateStats(rd); const ev=aggregatePriceEvents(rd); return `<div class=\"chart-container\"><div class=\"chart-header\"><h2 class=\"chart-title\">${r.name} (${r.code})</h2><div class=\"chart-stats\"><div class=\"stat\"><span class=\"stat-label\">Avg Price</span><span class=\"stat-value\">$${st.average} /MWh</span></div><div class=\"stat\"><span class=\"stat-label\">Peak Price</span><span class=\"stat-value\">$${st.peak} /MWh</span></div><div class=\"stat\"><span class=\"stat-label\">Lowest Avg</span><span class=\"stat-value\">$${st.lowest} /MWh</span></div></div></div><div class=\"canvas-wrapper\"><canvas id=\"chart-${r.code}\"></canvas></div>${createPriceEventsTable(ev)}<div class=\"event-charts-grid\"><div class=\"event-chart-container\"><div class=\"event-chart-title\">Negative Price Events Per Month</div><div class=\"event-chart-wrapper\"><canvas id=\"chart-negative-${r.code}\"></canvas></div></div><div class=\"event-chart-container\"><div class=\"event-chart-title\">High Price Events ($300-$1,000/MWh)</div><div class=\"event-chart-wrapper\"><canvas id=\"chart-high-${r.code}\"></canvas></div></div><div class=\"event-chart-container\"><div class=\"event-chart-title\">Extreme Price Events (≥$1,000/MWh)</div><div class=\"event-chart-wrapper\"><canvas id=\"chart-extreme-${r.code}\"></canvas></div></div></div></div>`; }).join(''); setTimeout(()=>{ regions.forEach(r=>{ const rd=all[r.code]; if(rd&&rd.length>0){ createChart(r,rd,chartType); createNeg(r,rd); createHigh(r,rd); createExtreme(r,rd); } }); },100); } catch(err){ console.error('render err',err); container.innerHTML = `<div class=\"chart-container\"><div style=\"padding:40px;text-align:center;\"><h3 style=\"color:#dc2626;margin-bottom:16px;\">⚠️ Unable to Load Data</h3><p style=\"color:#666;margin-bottom:12px;\">${err.message}</p><div style=\"background:#fef3c7;border-left:3px solid #f59e0b;padding:16px;margin:20px 0;text-align:left;\"><p style=\"color:#92400e;font-size:.875rem;\">Ensure your serverless function is running and has a valid OpenElectricity API key.</p></div></div></div>`; updateDataSourceNotice('✗ Failed to load data.'); } }
-    function updateCharts(){ cachedRealData=null; renderCharts(); }
+    // ── API base: always use current origin so it works on any Vercel deployment ──
+    const API_URL = window.location.protocol === 'file:'
+      ? 'http://localhost:3000'
+      : window.location.origin;
+
+    // ── Region definitions ────────────────────────────────────────────────────────
+    const regions = [
+      { code:'NSW1', name:'New South Wales',   color:'#2563eb' },
+      { code:'VIC1', name:'Victoria',          color:'#7c3aed' },
+      { code:'QLD1', name:'Queensland',        color:'#dc2626' },
+      { code:'SA1',  name:'South Australia',   color:'#059669' },
+      { code:'TAS1', name:'Tasmania',          color:'#ea580c' },
+    ];
+
+    let charts = {};
+    let cachedData = null;
+
+    const statusEl = document.getElementById('statusLine');
+
+    function setStatus(html, ok = false) {
+      statusEl.innerHTML = ok
+        ? `<span class="ok">✔ ${html}</span>`
+        : `<span class="err">✖ ${html}</span>`;
+    }
+
+    function updateDataSourceNotice(msg) {
+      const n = document.getElementById('dataSourceNotice');
+      const t = document.getElementById('dataSourceText');
+      t.textContent = msg;
+      n.style.display = 'block';
+    }
+
+    // ── Fetch historical data ─────────────────────────────────────────────────────
+    async function loadHistoricalData() {
+      setStatus('Fetching data from OpenElectricity API…');
+
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), 65000); // slightly over maxDuration
+
+      try {
+        const resp = await fetch(`${API_URL}/api/historical-all?years=4`, {
+          signal: controller.signal,
+        });
+        clearTimeout(tid);
+
+        if (!resp.ok) {
+          let errMsg = `HTTP ${resp.status}`;
+          try {
+            const body = await resp.json();
+            errMsg = body.message || body.error || errMsg;
+            if (body.hint) errMsg += ' — ' + body.hint;
+          } catch (_) {}
+          setStatus(`Failed (${resp.status}): ${errMsg}`);
+          throw new Error(errMsg);
+        }
+
+        const result = await resp.json();
+
+        if (!result.data || typeof result.data !== 'object') {
+          setStatus('Response contained no data field.');
+          throw new Error('No data field in API response');
+        }
+
+        // Build the data object: region code → array of monthly records
+        // The API now returns result.data keyed by region code (e.g. "NSW1")
+        const data = {};
+        for (const region of regions) {
+          const raw = result.data[region.code];
+          data[region.code] = Array.isArray(raw)
+            ? raw.map(it => ({
+                date: new Date(it.date),
+                averagePrice: it.averagePrice,
+                maxPrice: it.maxPrice,
+                priceEvents: it.priceEvents,
+              }))
+            : [];
+        }
+
+        const hasAny = Object.values(data).some(arr => arr.length > 0);
+        if (!hasAny) {
+          setStatus('API responded but returned empty data for all regions. Check your API key permissions.');
+          throw new Error('Empty data for all regions');
+        }
+
+        const totalMonths = Object.values(data).reduce((s, a) => s + a.length, 0);
+        updateDataSourceNotice(
+          `✓ Real data from OpenElectricity API v4 (/v4/market/NEM). ${totalMonths} monthly records across 5 regions.`
+        );
+        setStatus(`Data loaded — ${totalMonths} months across 5 regions.`, true);
+        return data;
+
+      } catch (err) {
+        clearTimeout(tid);
+        if (err.name === 'AbortError') {
+          const msg = 'Request timed out (>60 s). The API may be slow — try again.';
+          setStatus(msg);
+          throw new Error(msg);
+        }
+        if (!statusEl.textContent.includes('✖')) setStatus(err.message);
+        throw err;
+      }
+    }
+
+    // ── Stats helpers ─────────────────────────────────────────────────────────────
+    function calculateStats(d) {
+      const a = d.map(x => x.averagePrice);
+      const m = d.map(x => x.maxPrice);
+      return {
+        average: (a.reduce((p, c) => p + c, 0) / a.length).toFixed(2),
+        peak:    Math.max(...m).toFixed(2),
+        lowest:  Math.min(...a).toFixed(2),
+      };
+    }
+
+    function aggregatePriceEvents(d) {
+      const t = {
+        negative: { count: 0 },
+        high:     { count: 0 },
+        extreme:  { count: 0 },
+      };
+      d.forEach(it => {
+        if (it.priceEvents) {
+          t.negative.count += parseInt(it.priceEvents.negative?.count) || 0;
+          t.high.count     += parseInt(it.priceEvents.high?.count)     || 0;
+          t.extreme.count  += parseInt(it.priceEvents.extreme?.count)  || 0;
+        }
+      });
+      // percentage across the whole period (each monthly bucket has 1 data point with 1M interval)
+      const total = d.length; // one point per month
+      t.negative.percentage = total ? ((t.negative.count / total) * 100).toFixed(2) : '0.00';
+      t.high.percentage     = total ? ((t.high.count     / total) * 100).toFixed(2) : '0.00';
+      t.extreme.percentage  = total ? ((t.extreme.count  / total) * 100).toFixed(2) : '0.00';
+      return t;
+    }
+
+    function createPriceEventsTable(e) {
+      return `<div class="table-title">Price Events Analysis</div>
+        <table class="price-events-table">
+          <thead><tr><th>Event Type</th><th>Count</th><th>% of Months</th></tr></thead>
+          <tbody>
+            <tr><td>Months with Negative Prices (&lt; $0/MWh)</td>
+              <td><span class="event-count">${Number(e.negative.count).toLocaleString()}</span></td>
+              <td><span class="event-percentage">${e.negative.percentage}%</span></td></tr>
+            <tr><td>Months with High Prices ($300–$1,000/MWh avg)</td>
+              <td><span class="event-count">${Number(e.high.count).toLocaleString()}</span></td>
+              <td><span class="event-percentage">${e.high.percentage}%</span></td></tr>
+            <tr><td>Months with Extreme Prices (≥$1,000/MWh avg)</td>
+              <td><span class="event-count">${Number(e.extreme.count).toLocaleString()}</span></td>
+              <td><span class="event-percentage">${e.extreme.percentage}%</span></td></tr>
+          </tbody>
+        </table>`;
+    }
+
+    // ── Chart creation ────────────────────────────────────────────────────────────
+    function createChart(region, data, chartType) {
+      const cv = document.getElementById(`chart-${region.code}`);
+      if (!cv) return;
+      if (charts[region.code]) charts[region.code].destroy();
+      const labels = data.map(d => d.date.toLocaleDateString('en-AU', { year: 'numeric', month: 'short' }));
+      charts[region.code] = new Chart(cv.getContext('2d'), {
+        type: chartType,
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'Average Price',
+              data: data.map(d => d.averagePrice),
+              borderColor: region.color,
+              backgroundColor: chartType === 'bar' ? region.color + '40' : region.color + '20',
+              borderWidth: 2, fill: chartType === 'line', tension: .4,
+              pointRadius: 0, pointHoverRadius: 5, yAxisID: 'y',
+            },
+            {
+              label: 'Maximum Price',
+              data: data.map(d => d.maxPrice),
+              borderColor: '#dc2626', backgroundColor: 'transparent',
+              borderWidth: 2, borderDash: [5, 5], fill: false, tension: .4,
+              pointRadius: 0, pointHoverRadius: 5, yAxisID: 'y1',
+            },
+          ],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: true, position: 'top', labels: { usePointStyle: true, padding: 15, font: { size: 12 } } },
+            tooltip: {
+              backgroundColor: '#1a1a1a', titleColor: '#fff', bodyColor: '#e5e5e5',
+              borderColor: '#666', borderWidth: 1, padding: 12,
+              callbacks: { label: c => (c.dataset.label || '') + ': $' + c.parsed.y.toFixed(2) + ' /MWh' },
+            },
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { maxTicksLimit: 12, color: '#999', font: { size: 11 } } },
+            y: {
+              type: 'linear', display: true, position: 'left', beginAtZero: false,
+              grid: { color: '#e5e5e5' }, ticks: { color: '#999', callback: v => '$' + v, font: { size: 11 } },
+              title: { display: true, text: 'Average Price ($/MWh)', color: '#666', font: { size: 12, weight: '500' } },
+            },
+            y1: {
+              type: 'linear', display: true, position: 'right', beginAtZero: false,
+              grid: { drawOnChartArea: false }, ticks: { color: '#999', callback: v => '$' + v, font: { size: 11 } },
+              title: { display: true, text: 'Maximum Price ($/MWh)', color: '#dc2626', font: { size: 12, weight: '500' } },
+            },
+          },
+        },
+      });
+    }
+
+    function createNeg(region, data) {
+      const cv = document.getElementById(`chart-negative-${region.code}`);
+      if (!cv) return;
+      const key = `${region.code}-neg`;
+      if (charts[key]) charts[key].destroy();
+      charts[key] = new Chart(cv.getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels: data.map(d => d.date.toLocaleDateString('en-AU', { year: 'numeric', month: 'short' })),
+          datasets: [{ label: 'Negative Price Events', data: data.map(d => d.priceEvents?.negative?.count || 0), backgroundColor: '#0891b2', borderColor: '#0e7490', borderWidth: 1 }],
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1a1a1a', callbacks: { label: c => 'Events: ' + c.parsed.y.toLocaleString() } } }, scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 6, color: '#999', font: { size: 10 } } }, y: { beginAtZero: true, grid: { color: '#e5e5e5' }, ticks: { color: '#999', font: { size: 10 } }, title: { display: true, text: 'Number of Events', color: '#666', font: { size: 11 } } } } },
+      });
+    }
+
+    function createHigh(region, data) {
+      const cv = document.getElementById(`chart-high-${region.code}`);
+      if (!cv) return;
+      const key = `${region.code}-high`;
+      if (charts[key]) charts[key].destroy();
+      const counts = data.map(d => d.priceEvents?.high?.count || 0);
+      const avgs   = data.map(d => (d.priceEvents?.high?.avgPrice > 0) ? d.priceEvents.high.avgPrice : null);
+      charts[key] = new Chart(cv.getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels: data.map(d => d.date.toLocaleDateString('en-AU', { year: 'numeric', month: 'short' })),
+          datasets: [
+            { label: 'Event Count', data: counts, backgroundColor: '#f59e0b', borderColor: '#d97706', borderWidth: 1, yAxisID: 'y' },
+            { label: 'Avg Event Price', data: avgs, type: 'line', borderColor: '#dc2626', backgroundColor: 'transparent', borderWidth: 2, tension: .4, pointRadius: 3, yAxisID: 'y1', spanGaps: true },
+          ],
+        },
+        options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { display: true, position: 'top', labels: { usePointStyle: true, padding: 10, font: { size: 10 } } }, tooltip: { backgroundColor: '#1a1a1a', callbacks: { label: c => c.dataset.label === 'Event Count' ? 'Events: ' + c.parsed.y.toLocaleString() : 'Avg: $' + c.parsed.y.toFixed(2) + '/MWh' } } }, scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 6, color: '#999', font: { size: 10 } } }, y: { type: 'linear', display: true, position: 'left', beginAtZero: true, grid: { color: '#e5e5e5' }, ticks: { color: '#999', font: { size: 10 } }, title: { display: true, text: 'Event Count', color: '#666', font: { size: 11 } } }, y1: { type: 'linear', display: true, position: 'right', beginAtZero: false, grid: { drawOnChartArea: false }, ticks: { color: '#999', callback: v => '$' + v, font: { size: 10 } }, title: { display: true, text: 'Avg Price ($/MWh)', color: '#dc2626', font: { size: 11 } } } } },
+      });
+    }
+
+    function createExtreme(region, data) {
+      const cv = document.getElementById(`chart-extreme-${region.code}`);
+      if (!cv) return;
+      const key = `${region.code}-extreme`;
+      if (charts[key]) charts[key].destroy();
+      const counts = data.map(d => d.priceEvents?.extreme?.count || 0);
+      const avgs   = data.map(d => (d.priceEvents?.extreme?.avgPrice > 0) ? d.priceEvents.extreme.avgPrice : null);
+      charts[key] = new Chart(cv.getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels: data.map(d => d.date.toLocaleDateString('en-AU', { year: 'numeric', month: 'short' })),
+          datasets: [
+            { label: 'Event Count', data: counts, backgroundColor: '#dc2626', borderColor: '#b91c1c', borderWidth: 1, yAxisID: 'y' },
+            { label: 'Avg Event Price', data: avgs, type: 'line', borderColor: '#7c2d12', backgroundColor: 'transparent', borderWidth: 2, tension: .4, pointRadius: 3, yAxisID: 'y1', spanGaps: true },
+          ],
+        },
+        options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { display: true, position: 'top', labels: { usePointStyle: true, padding: 10, font: { size: 10 } } }, tooltip: { backgroundColor: '#1a1a1a', callbacks: { label: c => c.dataset.label === 'Event Count' ? 'Events: ' + c.parsed.y.toLocaleString() : 'Avg: $' + c.parsed.y.toFixed(2) + '/MWh' } } }, scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 6, color: '#999', font: { size: 10 } } }, y: { type: 'linear', display: true, position: 'left', beginAtZero: true, grid: { color: '#e5e5e5' }, ticks: { color: '#999', font: { size: 10 } }, title: { display: true, text: 'Event Count', color: '#666', font: { size: 11 } } }, y1: { type: 'linear', display: true, position: 'right', beginAtZero: false, grid: { drawOnChartArea: false }, ticks: { color: '#999', callback: v => '$' + v, font: { size: 10 } }, title: { display: true, text: 'Avg Price ($/MWh)', color: '#7c2d12', font: { size: 11 } } } } },
+      });
+    }
+
+    // ── Render all charts ─────────────────────────────────────────────────────────
+    async function renderCharts() {
+      const chartType = document.getElementById('chartType').value;
+      const container = document.getElementById('chartsContainer');
+      container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading historical data from OpenElectricity API…</div>';
+
+      try {
+        if (!cachedData) cachedData = await loadHistoricalData();
+        const all = cachedData;
+
+        container.innerHTML = regions.map(r => {
+          const rd = all[r.code];
+          if (!rd || rd.length === 0) {
+            return `<div class="chart-container"><div class="chart-header"><h2 class="chart-title">${r.name} (${r.code})</h2></div><div style="padding:40px;text-align:center;color:#999;">No data available for this region</div></div>`;
+          }
+          const st = calculateStats(rd);
+          const ev = aggregatePriceEvents(rd);
+          return `<div class="chart-container">
+            <div class="chart-header">
+              <h2 class="chart-title">${r.name} (${r.code})</h2>
+              <div class="chart-stats">
+                <div class="stat"><span class="stat-label">Avg Price</span><span class="stat-value">$${st.average} /MWh</span></div>
+                <div class="stat"><span class="stat-label">Peak Price</span><span class="stat-value">$${st.peak} /MWh</span></div>
+                <div class="stat"><span class="stat-label">Lowest Avg</span><span class="stat-value">$${st.lowest} /MWh</span></div>
+              </div>
+            </div>
+            <div class="canvas-wrapper"><canvas id="chart-${r.code}"></canvas></div>
+            ${createPriceEventsTable(ev)}
+            <div class="event-charts-grid">
+              <div class="event-chart-container"><div class="event-chart-title">Negative Price Events Per Month</div><div class="event-chart-wrapper"><canvas id="chart-negative-${r.code}"></canvas></div></div>
+              <div class="event-chart-container"><div class="event-chart-title">High Price Events ($300–$1,000/MWh)</div><div class="event-chart-wrapper"><canvas id="chart-high-${r.code}"></canvas></div></div>
+              <div class="event-chart-container"><div class="event-chart-title">Extreme Price Events (≥$1,000/MWh)</div><div class="event-chart-wrapper"><canvas id="chart-extreme-${r.code}"></canvas></div></div>
+            </div>
+          </div>`;
+        }).join('');
+
+        setTimeout(() => {
+          regions.forEach(r => {
+            const rd = all[r.code];
+            if (rd && rd.length > 0) {
+              createChart(r, rd, chartType);
+              createNeg(r, rd);
+              createHigh(r, rd);
+              createExtreme(r, rd);
+            }
+          });
+        }, 100);
+
+      } catch (err) {
+        console.error('[historical] render error:', err);
+        container.innerHTML = `
+          <div class="chart-container">
+            <div style="padding:40px;text-align:center;">
+              <h3 style="color:#dc2626;margin-bottom:16px;">⚠️ Unable to Load Data</h3>
+              <p style="color:#666;margin-bottom:12px;">${err.message}</p>
+              <div style="background:#fef3c7;border-left:3px solid #f59e0b;padding:16px;margin:20px 0;text-align:left;">
+                <p style="color:#92400e;font-size:.875rem;margin-bottom:8px;"><strong>To fix this:</strong></p>
+                <ol style="color:#92400e;font-size:.875rem;padding-left:20px;line-height:2;">
+                  <li>Ensure <code>OPENELECTRICITY_API_KEY</code> is set in Vercel → Settings → Environment Variables</li>
+                  <li>Verify the key at <a href="https://platform.openelectricity.org.au/" target="_blank" style="color:#b45309;">platform.openelectricity.org.au</a></li>
+                  <li>Redeploy after adding the environment variable</li>
+                  <li>Check Vercel function logs for the exact error</li>
+                </ol>
+              </div>
+              <button onclick="cachedData=null;renderCharts()" style="margin-top:16px;padding:10px 24px;background:#2563eb;color:#fff;border:none;cursor:pointer;font-size:.875rem;">Retry</button>
+            </div>
+          </div>`;
+        updateDataSourceNotice('✗ Failed to load data from OpenElectricity API.');
+      }
+    }
+
+    function updateCharts() { cachedData = null; renderCharts(); }
+
+    // Bootstrap
     renderCharts();
   </script>
 </body>
