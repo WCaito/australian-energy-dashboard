@@ -1,26 +1,9 @@
 {
-  "name": "openelectricity-data-proxy",
-  "version": "1.0.0",
-  "description": "Proxy server to fetch Australian Energy Market historical price data from OpenElectricity API",
-  "main": "openelectricity-proxy-server.js",
-  "scripts": {
-    "start": "node openelectricity-proxy-server.js",
-    "dev": "nodemon openelectricity-proxy-server.js"
-  },
-  "keywords": [
-    "aemo",
-    "energy",
-    "australia",
-    "electricity",
-    "proxy"
-  ],
-  "author": "",
+  "name": "australian-energy-dashboard",
+  "version": "2.0.0",
+  "description": "Real-time Australian electricity market dashboard — AEMO live prices + OpenElectricity historical data",
   "license": "MIT",
-  "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
+  "engines": {
+    "node": ">=18.x"
   }
 }
