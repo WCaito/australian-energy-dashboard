@@ -1,4 +1,4 @@
-/** historical-all.js (v4.3 - Vercel Edge Compatible) */
+/** historical-all.js (v4.4 - Ultra-defensive CORS) */
 const OE_BASE = process.env.OPENELECTRICITY_API_URL || 'https://api.openelectricity.org.au/v4';
 const REGIONS = ['NSW1','VIC1','QLD1','SA1','TAS1'];
 
@@ -197,23 +197,35 @@ function processResponse(apiResponse){
   return out;
 }
 
-export default async function handler(req, res) {
-  // Set CORS headers first
+// Helper to set CORS headers
+function setCorsHeaders(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   res.setHeader('Vary', 'Origin');
+}
+
+export default async function handler(req, res) {
+  // Set CORS headers IMMEDIATELY - before any other code
+  try {
+    setCorsHeaders(res);
+  } catch(e) {
+    console.error('Failed to set CORS headers:', e);
+  }
   
+  // Handle OPTIONS preflight
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
+  // Check API key
   const API_KEY = process.env.OPENELECTRICITY_API_KEY;
   if (!API_KEY) {
     return res.status(500).json({ error: 'API key not configured' });
   }
   
   try {
+    // Parse query parameters
     let years = parseInt(req.query.years, 10); 
     if (!Number.isFinite(years) || years <= 0) years = 4; 
     if (years > 5) years = 5;
@@ -223,6 +235,7 @@ export default async function handler(req, res) {
     let startISO = req.query.date_start;
     let endISO = req.query.date_end;
     
+    // Calculate date range if not provided
     if (!startISO || !endISO) { 
       const end = new Date(); 
       end.setUTCDate(end.getUTCDate() - 2); 
@@ -232,7 +245,10 @@ export default async function handler(req, res) {
       endISO = isoMidnightUTC(end); 
     }
     
+    // Fetch data
     const apiResponse = await fetchOpenElectricityData(startISO, endISO, API_KEY, mode, interval);
+    
+    // Process response
     const processed = processResponse(apiResponse);
     const totalMonths = Object.values(processed).reduce((s, arr) => s + (Array.isArray(arr) ? arr.length : 0), 0);
     
@@ -255,6 +271,15 @@ export default async function handler(req, res) {
     });
     
   } catch(e) {
+    // Ensure CORS headers are still set even on error
+    try {
+      setCorsHeaders(res);
+    } catch(corsErr) {
+      console.error('Failed to set CORS headers in catch:', corsErr);
+    }
+    
+    console.error('[ERROR]', e);
+    
     if (e && e.type === 'UPSTREAM') {
       return res.status(e.status || 502).json({ 
         error: 'Upstream API error', 
@@ -285,10 +310,10 @@ export default async function handler(req, res) {
       });
     }
     
-    console.error('[FATAL]', e); 
     return res.status(500).json({ 
       error: 'Unhandled server error', 
-      message: e?.message || String(e) 
+      message: e?.message || String(e),
+      stack: process.env.NODE_ENV === 'development' ? e?.stack : undefined
     });
   }
 }
