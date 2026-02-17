@@ -1,4 +1,4 @@
-/** historical-all.js (v4.4 - Ultra-defensive CORS) */
+/** historical-all.js (v5.0 - Vercel Free Tier) */
 const OE_BASE = process.env.OPENELECTRICITY_API_URL || 'https://api.openelectricity.org.au/v4';
 const REGIONS = ['NSW1','VIC1','QLD1','SA1','TAS1'];
 
@@ -9,7 +9,7 @@ function isoMidnightUTC(d){
 
 async function requestUpstreamWithRedirects(url, headers){
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
+  const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 seconds to stay within 10s limit
   
   try {
     const response = await fetch(url, {
@@ -74,7 +74,7 @@ async function fetchOpenElectricityData(startISO, endISO, apiKey, mode, interval
   const headers = {
     'Authorization': `Bearer ${apiKey}`,
     'Accept': 'application/json',
-    'User-Agent': 'aed-dashboard/1.3'
+    'User-Agent': 'aed-dashboard/1.4'
   };
   
   async function doRequest(grouped){
@@ -197,35 +197,23 @@ function processResponse(apiResponse){
   return out;
 }
 
-// Helper to set CORS headers
-function setCorsHeaders(res) {
+export default async function handler(req, res) {
+  // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   res.setHeader('Vary', 'Origin');
-}
-
-export default async function handler(req, res) {
-  // Set CORS headers IMMEDIATELY - before any other code
-  try {
-    setCorsHeaders(res);
-  } catch(e) {
-    console.error('Failed to set CORS headers:', e);
-  }
   
-  // Handle OPTIONS preflight
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
-  // Check API key
   const API_KEY = process.env.OPENELECTRICITY_API_KEY;
   if (!API_KEY) {
     return res.status(500).json({ error: 'API key not configured' });
   }
   
   try {
-    // Parse query parameters
     let years = parseInt(req.query.years, 10); 
     if (!Number.isFinite(years) || years <= 0) years = 4; 
     if (years > 5) years = 5;
@@ -235,7 +223,6 @@ export default async function handler(req, res) {
     let startISO = req.query.date_start;
     let endISO = req.query.date_end;
     
-    // Calculate date range if not provided
     if (!startISO || !endISO) { 
       const end = new Date(); 
       end.setUTCDate(end.getUTCDate() - 2); 
@@ -245,10 +232,7 @@ export default async function handler(req, res) {
       endISO = isoMidnightUTC(end); 
     }
     
-    // Fetch data
     const apiResponse = await fetchOpenElectricityData(startISO, endISO, API_KEY, mode, interval);
-    
-    // Process response
     const processed = processResponse(apiResponse);
     const totalMonths = Object.values(processed).reduce((s, arr) => s + (Array.isArray(arr) ? arr.length : 0), 0);
     
@@ -271,13 +255,6 @@ export default async function handler(req, res) {
     });
     
   } catch(e) {
-    // Ensure CORS headers are still set even on error
-    try {
-      setCorsHeaders(res);
-    } catch(corsErr) {
-      console.error('Failed to set CORS headers in catch:', corsErr);
-    }
-    
     console.error('[ERROR]', e);
     
     if (e && e.type === 'UPSTREAM') {
@@ -312,8 +289,7 @@ export default async function handler(req, res) {
     
     return res.status(500).json({ 
       error: 'Unhandled server error', 
-      message: e?.message || String(e),
-      stack: process.env.NODE_ENV === 'development' ? e?.stack : undefined
+      message: e?.message || String(e)
     });
   }
 }
