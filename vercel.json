@@ -1,13 +1,7 @@
 {
   "functions": {
-    "api/historical-all.js": {
+    "api/*.js": {
       "maxDuration": 60
-    },
-    "api/live-prices.js": {
-      "maxDuration": 15
-    },
-    "api/news.js": {
-      "maxDuration": 15
     }
   }
 }
