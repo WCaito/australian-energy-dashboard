@@ -168,7 +168,7 @@ module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   let years = parseInt(req.query.years, 10);
-  if (!Number.isFinite(years) || years <= 0) years = 4;
+  if (!Number.isFinite(years) || years <= 0) years = 1;
   if (years > 5) years = 5;
 
   const now = new Date();
