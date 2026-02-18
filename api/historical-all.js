@@ -1,7 +1,6 @@
 /**
  * historical-all.js
  * Fetches historical monthly electricity price data from OpenElectricity API v4.
- *
  * KEY CORRECTIONS vs previous version:
  *  - Price is a MARKET metric → endpoint is /v4/market/{network}, NOT /v4/data/network/{network}
  *  - Uses native 1M (monthly) interval so the API does the aggregation — no client-side bucketing needed
