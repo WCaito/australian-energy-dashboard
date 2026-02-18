@@ -169,7 +169,7 @@ module.exports = async function handler(req, res) {
 
   let years = parseInt(req.query.years, 10);
   if (!Number.isFinite(years) || years <= 0) years = 1;
-  if (years > 5) years = 5;
+  if (years > 1) years = 1;
 
   const now = new Date();
   const endDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
