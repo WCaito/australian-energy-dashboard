@@ -186,39 +186,48 @@
       };
     }
 
+
     function aggregatePriceEvents(d) {
+      // Sum counts and percentages from API (percentages already calculated across entire period)
       const t = {
-        negative: { count: 0 },
-        high:     { count: 0 },
-        extreme:  { count: 0 },
+        negative: { count: 0, percentage: 0 },
+        high:     { count: 0, percentage: 0 },
+        extreme:  { count: 0, percentage: 0 },
       };
+      
       d.forEach(it => {
         if (it.priceEvents) {
           t.negative.count += parseInt(it.priceEvents.negative?.count) || 0;
+          t.negative.percentage += parseFloat(it.priceEvents.negative?.percentage) || 0;
+          
           t.high.count     += parseInt(it.priceEvents.high?.count)     || 0;
+          t.high.percentage += parseFloat(it.priceEvents.high?.percentage) || 0;
+          
           t.extreme.count  += parseInt(it.priceEvents.extreme?.count)  || 0;
+          t.extreme.percentage += parseFloat(it.priceEvents.extreme?.percentage) || 0;
         }
       });
-      // percentage across the whole period (each monthly bucket has 1 data point with 1M interval)
-      const total = d.length; // one point per month
-      t.negative.percentage = total ? ((t.negative.count / total) * 100).toFixed(2) : '0.00';
-      t.high.percentage     = total ? ((t.high.count     / total) * 100).toFixed(2) : '0.00';
-      t.extreme.percentage  = total ? ((t.extreme.count  / total) * 100).toFixed(2) : '0.00';
+      
+      // Format percentages (already summed across all months)
+      t.negative.percentage = t.negative.percentage.toFixed(4);
+      t.high.percentage     = t.high.percentage.toFixed(4);
+      t.extreme.percentage  = t.extreme.percentage.toFixed(4);
       return t;
+    }
     }
 
     function createPriceEventsTable(e) {
       return `<div class="table-title">Price Events Analysis</div>
         <table class="price-events-table">
-          <thead><tr><th>Event Type</th><th>Count</th><th>% of Months</th></tr></thead>
+          <thead><tr><th>Event Type</th><th>Count</th><th>% of All Intervals</th></tr></thead>
           <tbody>
-            <tr><td>Months with Negative Prices (&lt; $0/MWh)</td>
+            <tr><td>5-Min Intervals with Negative Prices (&lt; $0/MWh)</td>
               <td><span class="event-count">${Number(e.negative.count).toLocaleString()}</span></td>
               <td><span class="event-percentage">${e.negative.percentage}%</span></td></tr>
-            <tr><td>Months with High Prices ($300–$1,000/MWh avg)</td>
+            <tr><td>5-Min Intervals with High Prices ($300–$1,000/MWh avg)</td>
               <td><span class="event-count">${Number(e.high.count).toLocaleString()}</span></td>
               <td><span class="event-percentage">${e.high.percentage}%</span></td></tr>
-            <tr><td>Months with Extreme Prices (≥$1,000/MWh avg)</td>
+            <tr><td>5-Min Intervals with Extreme Prices (≥$1,000/MWh avg)</td>
               <td><span class="event-count">${Number(e.extreme.count).toLocaleString()}</span></td>
               <td><span class="event-percentage">${e.extreme.percentage}%</span></td></tr>
           </tbody>
