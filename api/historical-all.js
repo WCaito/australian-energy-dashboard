@@ -1,6 +1,6 @@
 /**
  * historical-all.js - Fetch historical price data using OpenElectricity SDK
- * DEBUG VERSION - with extensive logging to understand SDK response structure
+ * FIXED VERSION - correctly accesses datatable.rows
  */
 
 const REGIONS = ['NSW1', 'VIC1', 'QLD1', 'SA1', 'TAS1'];
@@ -34,48 +34,12 @@ async function fetchPriceData(dateStart, dateEnd) {
   const client = await getClient();
   
   try {
-    console.log('[fetchPriceData] Calling getMarket with:', {
-      network: 'NEM',
-      metrics: ['price'],
-      params: {
-        interval: '1M',
-        dateStart,
-        dateEnd,
-        primaryGrouping: 'network_region',
-      }
-    });
-
     const response = await client.getMarket('NEM', ['price'], {
       interval: '1M',
       dateStart,
       dateEnd,
       primaryGrouping: 'network_region',
     });
-
-    // Log response structure
-    console.log('[fetchPriceData] Response type:', typeof response);
-    console.log('[fetchPriceData] Response keys:', Object.keys(response || {}));
-    console.log('[fetchPriceData] Has datatable:', !!response?.datatable);
-    
-    if (response?.datatable) {
-      console.log('[fetchPriceData] Datatable type:', typeof response.datatable);
-      console.log('[fetchPriceData] Datatable keys:', Object.keys(response.datatable));
-      console.log('[fetchPriceData] Datatable constructor:', response.datatable.constructor.name);
-      
-      // Check for various data access methods
-      if (typeof response.datatable.getRecords === 'function') {
-        console.log('[fetchPriceData] Has getRecords() method');
-      }
-      if (typeof response.datatable.toJSON === 'function') {
-        console.log('[fetchPriceData] Has toJSON() method');
-      }
-      if (Array.isArray(response.datatable.records)) {
-        console.log('[fetchPriceData] Has records array, length:', response.datatable.records.length);
-      }
-      if (Array.isArray(response.datatable.data)) {
-        console.log('[fetchPriceData] Has data array, length:', response.datatable.data.length);
-      }
-    }
 
     return response;
   } catch (err) {
@@ -84,65 +48,32 @@ async function fetchPriceData(dateStart, dateEnd) {
   }
 }
 
+/**
+ * Parse SDK DataTable response
+ * The datatable has: { rows, groupings, metrics, cache, rowsMap }
+ */
 function parseResponse(response) {
   const out = Object.fromEntries(REGIONS.map(r => [r, []]));
 
-  if (!response) {
-    console.log('[parseResponse] No response');
+  if (!response?.datatable?.rows) {
+    console.log('[parseResponse] No datatable.rows found');
     return out;
   }
 
-  // Try multiple ways to access the data
-  let records = [];
-  
-  if (response.datatable) {
-    const dt = response.datatable;
-    
-    // Method 1: Direct records array
-    if (Array.isArray(dt.records)) {
-      console.log('[parseResponse] Found dt.records array, length:', dt.records.length);
-      records = dt.records;
-    }
-    // Method 2: data array
-    else if (Array.isArray(dt.data)) {
-      console.log('[parseResponse] Found dt.data array, length:', dt.data.length);
-      records = dt.data;
-    }
-    // Method 3: getRecords() method
-    else if (typeof dt.getRecords === 'function') {
-      console.log('[parseResponse] Calling dt.getRecords()');
-      records = dt.getRecords();
-    }
-    // Method 4: toJSON() method
-    else if (typeof dt.toJSON === 'function') {
-      console.log('[parseResponse] Calling dt.toJSON()');
-      const json = dt.toJSON();
-      records = json.records || json.data || [];
-    }
-    // Method 5: Check if datatable itself is an array
-    else if (Array.isArray(dt)) {
-      console.log('[parseResponse] Datatable itself is an array, length:', dt.length);
-      records = dt;
-    }
+  const rows = response.datatable.rows;
+  console.log('[parseResponse] Processing', rows.length, 'rows');
+
+  // Log first row structure if available
+  if (rows.length > 0) {
+    console.log('[parseResponse] First row keys:', Object.keys(rows[0]));
+    console.log('[parseResponse] First row sample:', JSON.stringify(rows[0]).slice(0, 300));
   }
 
-  console.log('[parseResponse] Processing', records.length, 'records');
-
-  // Log first record structure if available
-  if (records.length > 0) {
-    console.log('[parseResponse] First record keys:', Object.keys(records[0]));
-    console.log('[parseResponse] First record sample:', JSON.stringify(records[0]).slice(0, 200));
-  }
-
-  for (const record of records) {
-    // Try different field names for region
-    const region = record.network_region || record.region || record.id || record.name;
-    
-    // Try different field names for timestamp
-    const timestamp = record.interval || record.timestamp || record.date || record.time;
-    
-    // Try different field names for price
-    const price = record.price || record.value;
+  for (const row of rows) {
+    // The DataTable rows contain the data with proper field names
+    const region = row.network_region;
+    const timestamp = row.interval || row.date || row.timestamp;
+    const price = row.price;
 
     if (!region || !REGIONS.includes(region)) {
       continue;
@@ -153,14 +84,19 @@ function parseResponse(response) {
     }
 
     const date = new Date(timestamp);
-    if (isNaN(date.getTime())) continue;
+    if (isNaN(date.getTime())) {
+      console.log('[parseResponse] Invalid date:', timestamp);
+      continue;
+    }
 
     out[region].push({ date, value: price });
   }
 
   // Log parsing results
   for (const region of REGIONS) {
-    console.log(`[parseResponse] ${region}: ${out[region].length} data points`);
+    if (out[region].length > 0) {
+      console.log(`[parseResponse] ${region}: ${out[region].length} data points`);
+    }
   }
 
   return out;
@@ -265,18 +201,19 @@ module.exports = async function handler(req, res) {
     console.log('[handler] Total months processed:', totalMonths);
 
     if (totalMonths === 0) {
-      // Return debug info to help diagnose
+      // Return debug info
       return res.status(502).json({
         error: 'Empty response',
-        message: 'OpenElectricity SDK returned data but no price records could be parsed',
+        message: 'OpenElectricity SDK returned no parseable price data',
         debug: {
-          responseKeys: response ? Object.keys(response) : null,
-          hasDatatable: !!response?.datatable,
-          datatableType: response?.datatable ? typeof response.datatable : null,
-          datatableKeys: response?.datatable ? Object.keys(response.datatable) : null,
+          rowsCount: response?.datatable?.rows?.length || 0,
+          hasRows: !!response?.datatable?.rows,
+          firstRowSample: response?.datatable?.rows?.[0] 
+            ? JSON.stringify(response.datatable.rows[0]).slice(0, 500)
+            : null,
         },
         dateRange: { start: dateStart, end: dateEnd },
-        hint: 'Check Vercel function logs for detailed debug output. The SDK response structure may have changed.',
+        hint: 'The date range may not have data, or the API key may not have access. Check Vercel logs for details.',
       });
     }
 
@@ -297,7 +234,7 @@ module.exports = async function handler(req, res) {
       return res.status(500).json({
         error: 'Missing dependency',
         message: 'OpenElectricity SDK not installed',
-        hint: 'Vercel should install it automatically from package.json. Check build logs.',
+        hint: 'Vercel should install it automatically. Check build logs.',
       });
     }
 
@@ -313,7 +250,6 @@ module.exports = async function handler(req, res) {
       error: 'Internal server error',
       message: err.message || String(err),
       type: err.constructor.name,
-      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
     });
   }
 };
