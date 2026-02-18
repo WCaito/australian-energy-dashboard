@@ -1,23 +1,26 @@
 /**
- * historical-all.js
- * Fetches historical monthly electricity price data from OpenElectricity API v4.
- * KEY CORRECTIONS vs previous version:
- *  - Price is a MARKET metric → endpoint is /v4/market/{network}, NOT /v4/data/network/{network}
- *  - Uses native 1M (monthly) interval so the API does the aggregation — no client-side bucketing needed
- *  - Date format: timezone-naive ISO strings in NEM local time (AEST = UTC+10), no trailing Z
- *  - Uses CommonJS (module.exports) for Vercel serverless compatibility
+ * historical-all.js - Fetch historical price data from OpenElectricity API v4
+ * 
+ * CORRECT ENDPOINT: /v4/data/network/{network_code} with metrics=price
+ * (price IS a valid network data metric)
  */
 
 const OE_BASE = process.env.OPENELECTRICITY_API_URL || 'https://api.openelectricity.org.au/v4';
 const REGIONS = ['NSW1', 'VIC1', 'QLD1', 'SA1', 'TAS1'];
 
-function toNEMLocal(date) {
-  // Convert UTC → AEST (UTC+10), strip timezone suffix for API
+/**
+ * Convert UTC date to AEST (UTC+10) timezone-naive ISO string
+ * OpenElectricity expects: "2024-01-01T00:00:00" (no Z suffix)
+ */
+function toAESTLocal(date) {
   const aest = new Date(date.getTime() + 10 * 60 * 60 * 1000);
   return aest.toISOString().replace('Z', '').split('.')[0];
 }
 
-async function fetchMarketData(dateStart, dateEnd, apiKey) {
+/**
+ * Fetch price data from OpenElectricity v4 API
+ */
+async function fetchPriceData(dateStart, dateEnd, apiKey) {
   const params = new URLSearchParams();
   params.append('metrics', 'price');
   params.append('interval', '1M');
@@ -25,11 +28,11 @@ async function fetchMarketData(dateStart, dateEnd, apiKey) {
   params.append('date_end', dateEnd);
   params.append('primary_grouping', 'network_region');
 
-  // CORRECT endpoint: /v4/market/{network_code} — NOT /v4/data/network/{network_code}
-  const url = `${OE_BASE}/market/NEM?${params.toString()}`;
+  // CORRECT endpoint for price data
+  const url = `${OE_BASE}/data/network/NEM?${params.toString()}`;
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 25000);
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
 
   try {
     const response = await fetch(url, {
@@ -37,7 +40,7 @@ async function fetchMarketData(dateStart, dateEnd, apiKey) {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         Accept: 'application/json',
-        'User-Agent': 'aed-dashboard/2.0',
+        'User-Agent': 'australian-energy-dashboard/2.0',
       },
       signal: controller.signal,
     });
@@ -45,7 +48,7 @@ async function fetchMarketData(dateStart, dateEnd, apiKey) {
     clearTimeout(timeoutId);
 
     if (response.status === 416) {
-      // 416 = No Data Found — valid empty response
+      // No data available for date range
       return { success: true, data: [], noData: true };
     }
 
@@ -61,19 +64,22 @@ async function fetchMarketData(dateStart, dateEnd, apiKey) {
     const json = await response.json();
     json._requestUrl = url;
     return json;
+
   } catch (e) {
     clearTimeout(timeoutId);
     if (e.name === 'AbortError') {
-      throw Object.assign(new Error('Request to OpenElectricity timed out'), { type: 'TIMEOUT' });
+      const err = new Error('Request timeout');
+      err.type = 'TIMEOUT';
+      throw err;
     }
     throw e;
   }
 }
 
 /**
- * Parse the /v4/market response.
- *
- * Response shape:
+ * Parse response from /v4/data/network endpoint
+ * 
+ * Response structure:
  * {
  *   success: true,
  *   data: [{
@@ -81,42 +87,48 @@ async function fetchMarketData(dateStart, dateEnd, apiKey) {
  *     unit: "$/MWh",
  *     interval: "1M",
  *     results: [{
- *       name: "NSW1",
- *       columns: { network_region: "NSW1" },
+ *       name: "NSW1" or columns: { network_region: "NSW1" },
  *       data: [{ timestamp: "2024-01-01T00:00:00", value: 85.23 }, ...]
- *     }, ...]
+ *     }]
  *   }]
  * }
  */
 function parseResponse(json) {
   const out = Object.fromEntries(REGIONS.map(r => [r, []]));
 
-  if (!json || json.success === false || !Array.isArray(json.data)) return out;
+  if (!json || json.success === false || !Array.isArray(json.data)) {
+    return out;
+  }
 
   for (const series of json.data) {
-    if ((series.metric || '').toLowerCase() !== 'price') continue;
+    const metricName = (series.metric || '').toLowerCase();
+    if (metricName !== 'price') continue;
     if (!Array.isArray(series.results)) continue;
 
     for (const result of series.results) {
-      // Region is in result.columns.network_region or result.name
-      const region =
+      // Region name can be in result.name or result.columns.network_region
+      const regionName = 
         (result.columns && result.columns.network_region) ||
         result.name ||
+        result.id ||
         '';
 
-      if (!REGIONS.includes(region)) continue;
+      if (!REGIONS.includes(regionName)) continue;
 
-      const rawData = Array.isArray(result.data) ? result.data : [];
+      const dataPoints = Array.isArray(result.data) 
+        ? result.data 
+        : (Array.isArray(result.history) ? result.history : []);
 
-      for (const pt of rawData) {
+      for (const pt of dataPoints) {
         const ts = pt.timestamp || pt.interval || pt.date;
         const val = pt.value;
+        
         if (ts == null || val == null) continue;
 
         const date = new Date(ts);
         if (isNaN(date.getTime())) continue;
 
-        out[region].push({ date, value: val });
+        out[regionName].push({ date, value: val });
       }
     }
   }
@@ -124,12 +136,15 @@ function parseResponse(json) {
   return out;
 }
 
+/**
+ * Aggregate raw data points into monthly summaries
+ */
 function buildMonthlyOutput(rawPoints) {
-  // rawPoints is already monthly (interval=1M), but bucket just in case
   const buckets = {};
 
   for (const { date, value } of rawPoints) {
     const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+    
     if (!buckets[key]) {
       buckets[key] = {
         year: date.getUTCFullYear(),
@@ -138,23 +153,25 @@ function buildMonthlyOutput(rawPoints) {
         prices: [],
       };
     }
+    
     buckets[key].prices.push(value);
   }
 
   return Object.values(buckets)
-    .map(b => {
-      const p = b.prices;
-      const avg = p.reduce((a, c) => a + c, 0) / p.length;
-      const max = Math.max(...p);
-      const negCount = p.filter(v => v < 0).length;
-      const highPx = p.filter(v => v >= 300 && v < 1000);
-      const extremePx = p.filter(v => v >= 1000);
-      const n = p.length;
+    .map(bucket => {
+      const prices = bucket.prices;
+      const avg = prices.reduce((sum, p) => sum + p, 0) / prices.length;
+      const max = Math.max(...prices);
+      
+      const negCount = prices.filter(p => p < 0).length;
+      const highPrices = prices.filter(p => p >= 300 && p < 1000);
+      const extremePrices = prices.filter(p => p >= 1000);
+      const n = prices.length;
 
       return {
-        year: b.year,
-        month: b.month,
-        date: b.date,
+        year: bucket.year,
+        month: bucket.month,
+        date: bucket.date,
         averagePrice: Number(avg.toFixed(2)),
         maxPrice: Number(max.toFixed(2)),
         priceEvents: {
@@ -163,17 +180,17 @@ function buildMonthlyOutput(rawPoints) {
             percentage: n ? Number(((negCount / n) * 100).toFixed(2)) : 0,
           },
           high: {
-            count: highPx.length,
-            percentage: n ? Number(((highPx.length / n) * 100).toFixed(2)) : 0,
-            avgPrice: highPx.length
-              ? Number((highPx.reduce((a, c) => a + c, 0) / highPx.length).toFixed(2))
+            count: highPrices.length,
+            percentage: n ? Number(((highPrices.length / n) * 100).toFixed(2)) : 0,
+            avgPrice: highPrices.length
+              ? Number((highPrices.reduce((a, b) => a + b, 0) / highPrices.length).toFixed(2))
               : 0,
           },
           extreme: {
-            count: extremePx.length,
-            percentage: n ? Number(((extremePx.length / n) * 100).toFixed(2)) : 0,
-            avgPrice: extremePx.length
-              ? Number((extremePx.reduce((a, c) => a + c, 0) / extremePx.length).toFixed(2))
+            count: extremePrices.length,
+            percentage: n ? Number(((extremePrices.length / n) * 100).toFixed(2)) : 0,
+            avgPrice: extremePrices.length
+              ? Number((extremePrices.reduce((a, b) => a + b, 0) / extremePrices.length).toFixed(2))
               : 0,
           },
         },
@@ -183,6 +200,7 @@ function buildMonthlyOutput(rawPoints) {
 }
 
 module.exports = async function handler(req, res) {
+  // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -194,30 +212,31 @@ module.exports = async function handler(req, res) {
   if (!apiKey) {
     return res.status(500).json({
       error: 'Server configuration error',
-      message: 'OPENELECTRICITY_API_KEY environment variable is not set.',
+      message: 'OPENELECTRICITY_API_KEY environment variable not set',
     });
   }
 
+  // Parse years parameter (default 4, max 5)
   let years = parseInt(req.query.years, 10);
   if (!Number.isFinite(years) || years <= 0) years = 4;
   if (years > 5) years = 5;
 
+  // Calculate date range - end at start of current month, go back N years
   const now = new Date();
-  // End = first of current month in UTC; start = N years back
   const endDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const startDate = new Date(endDate);
   startDate.setUTCFullYear(endDate.getUTCFullYear() - years);
 
-  const dateStart = toNEMLocal(startDate);
-  const dateEnd = toNEMLocal(endDate);
+  const dateStart = toAESTLocal(startDate);
+  const dateEnd = toAESTLocal(endDate);
 
   try {
-    const json = await fetchMarketData(dateStart, dateEnd, apiKey);
+    const json = await fetchPriceData(dateStart, dateEnd, apiKey);
 
     if (json.noData) {
       return res.status(404).json({
         error: 'No data found',
-        message: 'OpenElectricity returned no data for the requested date range.',
+        message: 'OpenElectricity returned no data for the requested date range',
         dateRange: { start: dateStart, end: dateEnd },
       });
     }
@@ -237,10 +256,9 @@ module.exports = async function handler(req, res) {
     if (totalMonths === 0) {
       return res.status(502).json({
         error: 'Empty response',
-        message: 'OpenElectricity returned data but none could be parsed for any NEM region.',
-        hint: 'Verify your API key has access to the market/price endpoint.',
+        message: 'OpenElectricity returned data but no price records could be parsed',
+        hint: 'Check your API key has access to price data via the network endpoint',
         dateRange: { start: dateStart, end: dateEnd },
-        rawDataArrayLength: Array.isArray(json.data) ? json.data.length : 'n/a',
         requestUrl: json._requestUrl,
       });
     }
@@ -249,17 +267,18 @@ module.exports = async function handler(req, res) {
       success: true,
       data: processed,
       fetchedAt: new Date().toISOString(),
-      source: 'OpenElectricity API v4 — /v4/market/NEM',
+      source: 'OpenElectricity API v4 — /v4/data/network/NEM',
       dateRange: { start: dateStart, end: dateEnd },
       years,
     });
+
   } catch (err) {
-    console.error('[historical-all] Fatal error:', err);
+    console.error('[historical-all] Error:', err);
 
     if (err.type === 'TIMEOUT') {
       return res.status(504).json({
         error: 'Upstream timeout',
-        message: 'OpenElectricity API did not respond in time.',
+        message: 'OpenElectricity API did not respond in time',
       });
     }
 
@@ -271,9 +290,11 @@ module.exports = async function handler(req, res) {
         url: err.url,
         hint:
           err.status === 401
-            ? 'Invalid or missing API key. Check OPENELECTRICITY_API_KEY.'
+            ? 'Invalid API key. Check OPENELECTRICITY_API_KEY in Vercel.'
             : err.status === 403
-            ? 'API key does not have permission for the market/price endpoint.'
+            ? 'API key does not have permission for price data.'
+            : err.status === 404
+            ? 'API endpoint not found. This should not happen - please report.'
             : err.status === 422
             ? 'Invalid query parameters sent to OpenElectricity.'
             : 'Check Vercel function logs for details.',
