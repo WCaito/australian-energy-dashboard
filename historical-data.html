@@ -112,7 +112,7 @@
       const tid = setTimeout(() => controller.abort(), 65000); // slightly over maxDuration
 
       try {
-        const resp = await fetch(`${API_URL}/api/historical-all?years=4`, {
+        const resp = await fetch(`${API_URL}/api/historical-all?years=2`, {
           signal: controller.signal,
         });
         clearTimeout(tid);
@@ -158,7 +158,7 @@
 
         const totalMonths = Object.values(data).reduce((s, a) => s + a.length, 0);
         updateDataSourceNotice(
-          `✓ Real data from OpenElectricity API v4 (/v4/market/NEM). ${totalMonths} monthly records across 5 regions.`
+          `✓ Real data from OpenElectricity API v4 (/v4/data/network/NEM). ${totalMonths} monthly records across 5 regions.`
         );
         setStatus(`Data loaded — ${totalMonths} months across 5 regions.`, true);
         return data;
