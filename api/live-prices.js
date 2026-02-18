@@ -1,5 +1,5 @@
 /**
- * live-prices.js — Fetch real-time NEM prices from AEMO public API.
+ * live-prices.js — Fetch real-time NEM prices from AEMO public API!
  * No API key required. Data updates every 5 minutes.
  */
 
