@@ -235,8 +235,8 @@ module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   let years = parseInt(req.query.years, 10);
-  if (!Number.isFinite(years) || years <= 0) years = 4;
-  if (years > 5) years = 5;
+  if (!Number.isFinite(years) || years <= 0) years = 1;
+  if (years > 1) years = 1;
 
   const now = new Date();
   const endDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
