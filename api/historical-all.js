@@ -1,16 +1,39 @@
 /**
- * historical-all.js - Fetch historical price data from OpenElectricity API v4
+ * historical-all.js - Fetch historical price data using OpenElectricity SDK
  * 
- * CORRECT ENDPOINT: /v4/data/network/{network_code} with metrics=price
- * (price IS a valid network data metric)
+ * Uses the official openelectricity npm package instead of raw HTTP calls
+ * since the API endpoints are not well-documented for direct HTTP access.
  */
 
-const OE_BASE = process.env.OPENELECTRICITY_API_URL || 'https://api.openelectricity.org.au/v4';
 const REGIONS = ['NSW1', 'VIC1', 'QLD1', 'SA1', 'TAS1'];
 
 /**
+ * Lazy-load the OpenElectricity client
+ */
+async function getClient() {
+  try {
+    const { OpenElectricityClient } = await import('openelectricity');
+    const apiKey = process.env.OPENELECTRICITY_API_KEY;
+    
+    if (!apiKey) {
+      throw new Error('OPENELECTRICITY_API_KEY environment variable not set');
+    }
+
+    return new OpenElectricityClient({
+      apiKey,
+    });
+  } catch (err) {
+    if (err.code === 'ERR_MODULE_NOT_FOUND') {
+      const installErr = new Error('OpenElectricity SDK not installed. Run: npm install openelectricity');
+      installErr.type = 'MISSING_DEPENDENCY';
+      throw installErr;
+    }
+    throw err;
+  }
+}
+
+/**
  * Convert UTC date to AEST (UTC+10) timezone-naive ISO string
- * OpenElectricity expects: "2024-01-01T00:00:00" (no Z suffix)
  */
 function toAESTLocal(date) {
   const aest = new Date(date.getTime() + 10 * 60 * 60 * 1000);
@@ -18,119 +41,56 @@ function toAESTLocal(date) {
 }
 
 /**
- * Fetch price data from OpenElectricity v4 API
+ * Fetch price data using the SDK's getMarket method
  */
-async function fetchPriceData(dateStart, dateEnd, apiKey) {
-  const params = new URLSearchParams();
-  params.append('metrics', 'price');
-  params.append('interval', '1M');
-  params.append('date_start', dateStart);
-  params.append('date_end', dateEnd);
-  params.append('primary_grouping', 'network_region');
-
-  // CORRECT endpoint for price data
-  const url = `${OE_BASE}/data/network/NEM?${params.toString()}`;
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
-
+async function fetchPriceData(dateStart, dateEnd) {
+  const client = await getClient();
+  
   try {
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        Accept: 'application/json',
-        'User-Agent': 'australian-energy-dashboard/2.0',
-      },
-      signal: controller.signal,
+    // Use the getMarket() method for price data
+    const response = await client.getMarket('NEM', ['price'], {
+      interval: '1M',
+      dateStart,
+      dateEnd,
+      primaryGrouping: 'network_region',
     });
 
-    clearTimeout(timeoutId);
-
-    if (response.status === 416) {
-      // No data available for date range
-      return { success: true, data: [], noData: true };
-    }
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      const err = new Error(`OpenElectricity API ${response.status}`);
-      err.status = response.status;
-      err.body = body.slice(0, 800);
-      err.url = url;
-      throw err;
-    }
-
-    const json = await response.json();
-    json._requestUrl = url;
-    return json;
-
-  } catch (e) {
-    clearTimeout(timeoutId);
-    if (e.name === 'AbortError') {
-      const err = new Error('Request timeout');
-      err.type = 'TIMEOUT';
-      throw err;
-    }
-    throw e;
+    return response;
+  } catch (err) {
+    console.error('[fetchPriceData] SDK error:', err);
+    throw err;
   }
 }
 
 /**
- * Parse response from /v4/data/network endpoint
- * 
- * Response structure:
- * {
- *   success: true,
- *   data: [{
- *     metric: "price",
- *     unit: "$/MWh",
- *     interval: "1M",
- *     results: [{
- *       name: "NSW1" or columns: { network_region: "NSW1" },
- *       data: [{ timestamp: "2024-01-01T00:00:00", value: 85.23 }, ...]
- *     }]
- *   }]
- * }
+ * Parse SDK response - datatable structure
  */
-function parseResponse(json) {
+function parseDataTableResponse(response) {
   const out = Object.fromEntries(REGIONS.map(r => [r, []]));
 
-  if (!json || json.success === false || !Array.isArray(json.data)) {
+  if (!response || !response.datatable) {
     return out;
   }
 
-  for (const series of json.data) {
-    const metricName = (series.metric || '').toLowerCase();
-    if (metricName !== 'price') continue;
-    if (!Array.isArray(series.results)) continue;
+  const { datatable } = response;
+  
+  // The datatable has methods like filter(), groupBy(), etc
+  // but we need to extract raw data
+  const records = datatable.records || datatable.data || [];
 
-    for (const result of series.results) {
-      // Region name can be in result.name or result.columns.network_region
-      const regionName = 
-        (result.columns && result.columns.network_region) ||
-        result.name ||
-        result.id ||
-        '';
+  for (const record of records) {
+    const region = record.network_region;
+    const timestamp = record.interval || record.timestamp || record.date;
+    const price = record.price;
 
-      if (!REGIONS.includes(regionName)) continue;
-
-      const dataPoints = Array.isArray(result.data) 
-        ? result.data 
-        : (Array.isArray(result.history) ? result.history : []);
-
-      for (const pt of dataPoints) {
-        const ts = pt.timestamp || pt.interval || pt.date;
-        const val = pt.value;
-        
-        if (ts == null || val == null) continue;
-
-        const date = new Date(ts);
-        if (isNaN(date.getTime())) continue;
-
-        out[regionName].push({ date, value: val });
-      }
+    if (!region || !REGIONS.includes(region) || !timestamp || price == null) {
+      continue;
     }
+
+    const date = new Date(timestamp);
+    if (isNaN(date.getTime())) continue;
+
+    out[region].push({ date, value: price });
   }
 
   return out;
@@ -200,7 +160,6 @@ function buildMonthlyOutput(rawPoints) {
 }
 
 module.exports = async function handler(req, res) {
-  // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -208,20 +167,10 @@ module.exports = async function handler(req, res) {
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const apiKey = process.env.OPENELECTRICITY_API_KEY;
-  if (!apiKey) {
-    return res.status(500).json({
-      error: 'Server configuration error',
-      message: 'OPENELECTRICITY_API_KEY environment variable not set',
-    });
-  }
-
-  // Parse years parameter (default 4, max 5)
   let years = parseInt(req.query.years, 10);
   if (!Number.isFinite(years) || years <= 0) years = 4;
   if (years > 5) years = 5;
 
-  // Calculate date range - end at start of current month, go back N years
   const now = new Date();
   const endDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const startDate = new Date(endDate);
@@ -231,17 +180,8 @@ module.exports = async function handler(req, res) {
   const dateEnd = toAESTLocal(endDate);
 
   try {
-    const json = await fetchPriceData(dateStart, dateEnd, apiKey);
-
-    if (json.noData) {
-      return res.status(404).json({
-        error: 'No data found',
-        message: 'OpenElectricity returned no data for the requested date range',
-        dateRange: { start: dateStart, end: dateEnd },
-      });
-    }
-
-    const rawByRegion = parseResponse(json);
+    const response = await fetchPriceData(dateStart, dateEnd);
+    const rawByRegion = parseDataTableResponse(response);
 
     const processed = {};
     for (const region of REGIONS) {
@@ -256,10 +196,9 @@ module.exports = async function handler(req, res) {
     if (totalMonths === 0) {
       return res.status(502).json({
         error: 'Empty response',
-        message: 'OpenElectricity returned data but no price records could be parsed',
-        hint: 'Check your API key has access to price data via the network endpoint',
+        message: 'OpenElectricity SDK returned data but no price records could be parsed',
         dateRange: { start: dateStart, end: dateEnd },
-        requestUrl: json._requestUrl,
+        hint: 'Check your API key permissions and that price data is available for the requested date range',
       });
     }
 
@@ -267,7 +206,7 @@ module.exports = async function handler(req, res) {
       success: true,
       data: processed,
       fetchedAt: new Date().toISOString(),
-      source: 'OpenElectricity API v4 — /v4/data/network/NEM',
+      source: 'OpenElectricity API v4 via official SDK',
       dateRange: { start: dateStart, end: dateEnd },
       years,
     });
@@ -275,35 +214,26 @@ module.exports = async function handler(req, res) {
   } catch (err) {
     console.error('[historical-all] Error:', err);
 
-    if (err.type === 'TIMEOUT') {
-      return res.status(504).json({
-        error: 'Upstream timeout',
-        message: 'OpenElectricity API did not respond in time',
+    if (err.type === 'MISSING_DEPENDENCY') {
+      return res.status(500).json({
+        error: 'Missing dependency',
+        message: err.message,
+        hint: 'Add "openelectricity": "^0.5.0" to package.json dependencies and redeploy',
       });
     }
 
-    if (err.status) {
-      return res.status(502).json({
-        error: 'Upstream API error',
-        upstreamStatus: err.status,
-        upstreamBody: err.body,
-        url: err.url,
-        hint:
-          err.status === 401
-            ? 'Invalid API key. Check OPENELECTRICITY_API_KEY in Vercel.'
-            : err.status === 403
-            ? 'API key does not have permission for price data.'
-            : err.status === 404
-            ? 'API endpoint not found. This should not happen - please report.'
-            : err.status === 422
-            ? 'Invalid query parameters sent to OpenElectricity.'
-            : 'Check Vercel function logs for details.',
+    if (err.message && err.message.includes('OPENELECTRICITY_API_KEY')) {
+      return res.status(500).json({
+        error: 'Configuration error',
+        message: 'OPENELECTRICITY_API_KEY environment variable not set',
+        hint: 'Add your API key in Vercel Settings → Environment Variables',
       });
     }
 
     return res.status(500).json({
       error: 'Internal server error',
       message: err.message || String(err),
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
     });
   }
 };
