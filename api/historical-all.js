@@ -1,6 +1,6 @@
 /**
  * historical-all.js - Fetch historical price data using OpenElectricity SDK
- * FIXED VERSION - correctly accesses datatable.rows
+ * WORKING VERSION - correctly parses datatable.rows with proper field names
  */
 
 const REGIONS = ['NSW1', 'VIC1', 'QLD1', 'SA1', 'TAS1'];
@@ -48,10 +48,6 @@ async function fetchPriceData(dateStart, dateEnd) {
   }
 }
 
-/**
- * Parse SDK DataTable response
- * The datatable has: { rows, groupings, metrics, cache, rowsMap }
- */
 function parseResponse(response) {
   const out = Object.fromEntries(REGIONS.map(r => [r, []]));
 
@@ -63,16 +59,10 @@ function parseResponse(response) {
   const rows = response.datatable.rows;
   console.log('[parseResponse] Processing', rows.length, 'rows');
 
-  // Log first row structure if available
-  if (rows.length > 0) {
-    console.log('[parseResponse] First row keys:', Object.keys(rows[0]));
-    console.log('[parseResponse] First row sample:', JSON.stringify(rows[0]).slice(0, 300));
-  }
-
   for (const row of rows) {
-    // The DataTable rows contain the data with proper field names
-    const region = row.network_region;
-    const timestamp = row.interval || row.date || row.timestamp;
+    // FIXED: Field is called 'region' not 'network_region'
+    const region = row.region;
+    const timestamp = row.interval;
     const price = row.price;
 
     if (!region || !REGIONS.includes(region)) {
@@ -182,8 +172,6 @@ module.exports = async function handler(req, res) {
   const dateStart = toAESTLocal(startDate);
   const dateEnd = toAESTLocal(endDate);
 
-  console.log('[handler] Date range:', { dateStart, dateEnd, years });
-
   try {
     const response = await fetchPriceData(dateStart, dateEnd);
     const rawByRegion = parseResponse(response);
@@ -201,19 +189,11 @@ module.exports = async function handler(req, res) {
     console.log('[handler] Total months processed:', totalMonths);
 
     if (totalMonths === 0) {
-      // Return debug info
       return res.status(502).json({
         error: 'Empty response',
-        message: 'OpenElectricity SDK returned no parseable price data',
-        debug: {
-          rowsCount: response?.datatable?.rows?.length || 0,
-          hasRows: !!response?.datatable?.rows,
-          firstRowSample: response?.datatable?.rows?.[0] 
-            ? JSON.stringify(response.datatable.rows[0]).slice(0, 500)
-            : null,
-        },
+        message: 'No price data available for the requested date range',
         dateRange: { start: dateStart, end: dateEnd },
-        hint: 'The date range may not have data, or the API key may not have access. Check Vercel logs for details.',
+        hint: 'Try requesting more years of historical data using ?years=2 or ?years=3',
       });
     }
 
@@ -228,13 +208,11 @@ module.exports = async function handler(req, res) {
 
   } catch (err) {
     console.error('[handler] Error:', err);
-    console.error('[handler] Error stack:', err.stack);
 
     if (err.type === 'MISSING_DEPENDENCY') {
       return res.status(500).json({
         error: 'Missing dependency',
         message: 'OpenElectricity SDK not installed',
-        hint: 'Vercel should install it automatically. Check build logs.',
       });
     }
 
@@ -242,14 +220,12 @@ module.exports = async function handler(req, res) {
       return res.status(500).json({
         error: 'Configuration error',
         message: 'OPENELECTRICITY_API_KEY environment variable not set',
-        hint: 'Add your API key in Vercel Settings → Environment Variables',
       });
     }
 
     return res.status(500).json({
       error: 'Internal server error',
       message: err.message || String(err),
-      type: err.constructor.name,
     });
   }
 };
