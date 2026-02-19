@@ -7,7 +7,6 @@
     "node": ">=18.x"
   },
   "dependencies": {
-    "openelectricity": "^0.5.0",
-    "jszip": "^3.10.1"
+    "openelectricity": "^0.5.0"
   }
 }
