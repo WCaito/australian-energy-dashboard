@@ -104,75 +104,155 @@
       n.style.display = 'block';
     }
 
-    // ── Fetch historical data ─────────────────────────────────────────────────────
+    // ── Progress bar helpers ──────────────────────────────────────────────────────
+    function setProgress(pct, msg) {
+      const bar = document.getElementById('progressBar');
+      const label = document.getElementById('progressLabel');
+      if (bar) bar.style.width = pct + '%';
+      if (label) label.textContent = msg || '';
+    }
+
+    function showProgressUI() {
+      const container = document.getElementById('chartsContainer');
+      container.innerHTML = `
+        <div class="loading">
+          <div class="spinner"></div>
+          <div style="margin-bottom:16px;font-weight:500;color:#1a1a1a" id="progressLabel">Checking cache…</div>
+          <div style="background:#e5e5e5;border-radius:4px;height:8px;width:320px;max-width:90%;margin:0 auto 12px;">
+            <div id="progressBar" style="background:#2563eb;height:8px;border-radius:4px;width:5%;transition:width .4s ease;"></div>
+          </div>
+          <div style="font-size:.8125rem;color:#999" id="progressSub">This may take 10–20 seconds on first load</div>
+        </div>`;
+    }
+
+    function setProgressSub(msg) {
+      const el = document.getElementById('progressSub');
+      if (el) el.textContent = msg;
+    }
+
+    // ── Fetch historical data (fan-out pattern) ───────────────────────────────────
     async function loadHistoricalData() {
-      setStatus('Fetching data from OpenElectricity API…');
+      const REGIONS_LIST = regions.map(r => r.code);
+      const baseUrl = `${API_URL}/api/historical-all`;
 
-      const controller = new AbortController();
-      const tid = setTimeout(() => controller.abort(), 65000); // slightly over maxDuration
+      // ── Step 1: Try combined cache ────────────────────────────────────────────
+      setStatus('Checking cache…');
+      setProgress(5, 'Checking server cache…');
 
+      let initial;
       try {
-        const resp = await fetch(`${API_URL}/api/historical-all?years=2`, {
-          signal: controller.signal,
-        });
-        clearTimeout(tid);
-
-        if (!resp.ok) {
-          let errMsg = `HTTP ${resp.status}`;
-          try {
-            const body = await resp.json();
-            errMsg = body.message || body.error || errMsg;
-            if (body.hint) errMsg += ' — ' + body.hint;
-          } catch (_) {}
-          setStatus(`Failed (${resp.status}): ${errMsg}`);
-          throw new Error(errMsg);
-        }
-
-        const result = await resp.json();
-
-        if (!result.data || typeof result.data !== 'object') {
-          setStatus('Response contained no data field.');
-          throw new Error('No data field in API response');
-        }
-
-        // Build the data object: region code → array of monthly records
-        // The API now returns result.data keyed by region code (e.g. "NSW1")
-        const data = {};
-        for (const region of regions) {
-          const raw = result.data[region.code];
-          data[region.code] = Array.isArray(raw)
-            ? raw.map(it => ({
-                date: new Date(it.date),
-                averagePrice: it.averagePrice,
-                maxPrice: it.maxPrice,
-                priceEvents: it.priceEvents,
-              }))
-            : [];
-        }
-
-        const hasAny = Object.values(data).some(arr => arr.length > 0);
-        if (!hasAny) {
-          setStatus('API responded but returned empty data for all regions. Check your API key permissions.');
-          throw new Error('Empty data for all regions');
-        }
-
-        const totalMonths = Object.values(data).reduce((s, a) => s + a.length, 0);
-        updateDataSourceNotice(
-          `✓ Real data from OpenElectricity API v4 (/v4/data/network/NEM). ${totalMonths} monthly records across 5 regions.`
-        );
-        setStatus(`Data loaded — ${totalMonths} months across 5 regions.`, true);
-        return data;
-
+        initial = await fetch(`${baseUrl}?years=2`);
       } catch (err) {
-        clearTimeout(tid);
-        if (err.name === 'AbortError') {
-          const msg = 'Request timed out (>60 s). The API may be slow — try again.';
-          setStatus(msg);
-          throw new Error(msg);
-        }
-        if (!statusEl.textContent.includes('✖')) setStatus(err.message);
-        throw err;
+        throw new Error('Network error reaching API: ' + err.message);
       }
+
+      // Full cache hit → done
+      if (initial.ok && initial.status === 200) {
+        const result = await initial.json();
+        setProgress(100, 'Loaded from cache');
+        return parseAPIResult(result);
+      }
+
+      // ── Step 2: Cache miss or partial → fan out per-region ────────────────────
+      let missingRegions = REGIONS_LIST;
+
+      if (initial.status === 206) {
+        // Partial cache — only fetch what's missing
+        const partial = await initial.json();
+        missingRegions = partial.missingRegions?.length ? partial.missingRegions : REGIONS_LIST;
+        setProgress(10, `Refreshing ${missingRegions.length} region(s) — please wait…`);
+        setProgressSub(`Fetching ${missingRegions.join(', ')} in parallel`);
+      } else if (initial.status === 202) {
+        // Full cache miss
+        setProgress(10, 'No cached data — fetching all 5 regions in parallel…');
+        setProgressSub('Downloading 2 years of 5-min AEMO interval data (this takes ~15 seconds)');
+      } else {
+        // Unexpected error
+        let errMsg = `HTTP ${initial.status}`;
+        try { const b = await initial.json(); errMsg = b.message || b.error || errMsg; } catch (_) {}
+        setStatus(`Failed (${initial.status}): ${errMsg}`);
+        throw new Error(errMsg);
+      }
+
+      // Fire all missing-region requests simultaneously
+      let completed = 0;
+      const fanOutResults = await Promise.allSettled(
+        missingRegions.map(async region => {
+          const resp = await fetch(`${baseUrl}?years=2&region=${region}`);
+          if (!resp.ok) {
+            const body = await resp.json().catch(() => ({}));
+            throw new Error(`${region}: ${body.message || resp.statusText}`);
+          }
+          const json = await resp.json();
+          completed++;
+          const pct = 10 + Math.round((completed / missingRegions.length) * 75);
+          setProgress(pct, `Fetched ${region} (${completed}/${missingRegions.length} regions done)`);
+          return json;
+        })
+      );
+
+      // Log failures but don't hard-fail — KV may have partial data from prev runs
+      for (const r of fanOutResults) {
+        if (r.status === 'rejected') {
+          console.warn('[historical] Region fan-out failed:', r.reason);
+        }
+      }
+
+      // ── Step 3: Re-fetch combined result (now in KV) ──────────────────────────
+      setProgress(90, 'Combining all regions…');
+
+      let final;
+      try {
+        final = await fetch(`${baseUrl}?years=2`);
+      } catch (err) {
+        throw new Error('Network error on final fetch: ' + err.message);
+      }
+
+      if (!final.ok && final.status !== 206) {
+        let errMsg = `HTTP ${final.status}`;
+        try { const b = await final.json(); errMsg = b.message || b.error || errMsg; } catch (_) {}
+        setStatus(`Failed after fan-out (${final.status}): ${errMsg}`);
+        throw new Error(errMsg);
+      }
+
+      const result = await final.json();
+      setProgress(100, 'All data loaded');
+      return parseAPIResult(result);
+    }
+
+    // ── Parse the API response into chart-ready data ──────────────────────────────
+    function parseAPIResult(result) {
+      if (!result.data || typeof result.data !== 'object') {
+        setStatus('Response contained no data field.');
+        throw new Error('No data field in API response');
+      }
+
+      const data = {};
+      for (const region of regions) {
+        const raw = result.data[region.code];
+        data[region.code] = Array.isArray(raw)
+          ? raw.map(it => ({
+              date: new Date(it.date),
+              averagePrice: it.averagePrice,
+              maxPrice: it.maxPrice,
+              priceEvents: it.priceEvents,
+            }))
+          : [];
+      }
+
+      const hasAny = Object.values(data).some(arr => arr.length > 0);
+      if (!hasAny) {
+        setStatus('API responded but returned empty data for all regions. Check your API key permissions.');
+        throw new Error('Empty data for all regions');
+      }
+
+      const totalMonths = Object.values(data).reduce((s, a) => s + a.length, 0);
+      const cached = result.cached ? ' [served from cache]' : '';
+      updateDataSourceNotice(
+        `✓ AEMO 5-min interval data via OpenElectricity. ${totalMonths} monthly records across 5 regions.${cached}`
+      );
+      setStatus(`Data loaded — ${totalMonths} months across 5 regions.`, true);
+      return data;
     }
 
     // ── Stats helpers ─────────────────────────────────────────────────────────────
@@ -347,8 +427,7 @@
     // ── Render all charts ─────────────────────────────────────────────────────────
     async function renderCharts() {
       const chartType = document.getElementById('chartType').value;
-      const container = document.getElementById('chartsContainer');
-      container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading historical data from OpenElectricity API…</div>';
+      showProgressUI();
 
       try {
         if (!cachedData) cachedData = await loadHistoricalData();
@@ -394,6 +473,7 @@
 
       } catch (err) {
         console.error('[historical] render error:', err);
+        const container = document.getElementById('chartsContainer');
         container.innerHTML = `
           <div class="chart-container">
             <div style="padding:40px;text-align:center;">
@@ -403,19 +483,20 @@
                 <p style="color:#92400e;font-size:.875rem;margin-bottom:8px;"><strong>To fix this:</strong></p>
                 <ol style="color:#92400e;font-size:.875rem;padding-left:20px;line-height:2;">
                   <li>Ensure <code>OPENELECTRICITY_API_KEY</code> is set in Vercel → Settings → Environment Variables</li>
-                  <li>Verify the key at <a href="https://platform.openelectricity.org.au/" target="_blank" style="color:#b45309;">platform.openelectricity.org.au</a></li>
-                  <li>Redeploy after adding the environment variable</li>
+                  <li>Create a Vercel KV store and link it to your project (adds <code>KV_REST_API_URL</code> + <code>KV_REST_API_TOKEN</code> automatically)</li>
+                  <li>Verify your OE key at <a href="https://platform.openelectricity.org.au/" target="_blank" style="color:#b45309;">platform.openelectricity.org.au</a></li>
+                  <li>Redeploy after adding environment variables</li>
                   <li>Check Vercel function logs for the exact error</li>
                 </ol>
               </div>
               <button onclick="cachedData=null;renderCharts()" style="margin-top:16px;padding:10px 24px;background:#2563eb;color:#fff;border:none;cursor:pointer;font-size:.875rem;">Retry</button>
             </div>
           </div>`;
-        updateDataSourceNotice('✗ Failed to load data from OpenElectricity API.');
+        updateDataSourceNotice('✗ Failed to load data — see error above.');
       }
     }
 
-    function updateCharts() { cachedData = null; renderCharts(); }
+    function updateCharts() { renderCharts(); }
 
     // Bootstrap
     renderCharts();
