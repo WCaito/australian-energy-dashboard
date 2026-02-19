@@ -1,7 +1,31 @@
 {
   "functions": {
-    "api/*.js": {
+    "api/historical-all.js": {
+      "maxDuration": 60
+    },
+    "api/historical-all-cron.js": {
+      "maxDuration": 300
+    },
+    "api/live-prices.js": {
+      "maxDuration": 60
+    },
+    "api/news.js": {
+      "maxDuration": 60
+    },
+    "api/oe-health.js": {
+      "maxDuration": 60
+    },
+    "api/oe-ping.js": {
+      "maxDuration": 60
+    },
+    "api/oe-probe.js": {
       "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/historical-all-cron",
+      "schedule": "0 2 * * *"
+    }
+  ]
 }
