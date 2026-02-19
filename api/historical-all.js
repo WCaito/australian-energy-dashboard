@@ -1,11 +1,11 @@
 /**
- * historical-all.js - CORRECT AEMO LOCATIONS
+ * historical-all.js - AEMO CSV Price and Demand Data
  * 
- * AEMO changed archive structure in August 2024:
- * - Before Aug 2024: /Data_Archive/Wholesale_Electricity/MMSDM/{YEAR}/MMSDM_{YEAR}_{MONTH}/...
- * - Aug 2024 onwards: /Reports/Archive/Next_Day_Dispatch/PUBLIC_NEXT_DAY_DISPATCH_{YYYYMM}01.zip
+ * Uses AEMO's lightweight price and demand CSV files
+ * URL: https://www.aemo.com.au/aemo/data/nem/priceanddemand/PRICE_AND_DEMAND_YYYYMM_REGION.csv
  * 
- * NO FALLBACK - Only AEMO 5-minute data used
+ * Each file is ~3-5 MB (much smaller than 190 MB archives)
+ * Contains: REGION, SETTLEMENTDATE, TOTALDEMAND, RRP, PERIODTYPE
  */
 
 const REGIONS = ['NSW1', 'VIC1', 'QLD1', 'SA1', 'TAS1'];
@@ -79,27 +79,29 @@ function parseMonthlyAverages(response) {
 }
 
 /**
- * Fetch from MMSDM Historical Archive (before August 2024)
+ * Fetch AEMO CSV for a specific month and region
+ * URL format: PRICE_AND_DEMAND_YYYYMM_REGION.csv
  */
-async function fetchAEMOMonthOldFormat(year, month) {
-  const monthStr = String(month).padStart(2, '0');
-  const url = `https://nemweb.com.au/Data_Archive/Wholesale_Electricity/MMSDM/${year}/MMSDM_${year}_${monthStr}/MMSDM_Historical_Data_SQLLoader/DATA/PUBLIC_DVD_DISPATCHPRICE_${year}${monthStr}010000.zip`;
+async function fetchAEMOCSV(year, month, region) {
+  const yearMonth = `${year}${String(month).padStart(2, '0')}`;
+  const url = `https://www.aemo.com.au/aemo/data/nem/priceanddemand/PRICE_AND_DEMAND_${yearMonth}_${region}.csv`;
   
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000);
+    const timeout = setTimeout(() => controller.abort(), 15000);
     
     const response = await fetch(url, {
-      headers: { 'User-Agent': 'australian-energy-dashboard/2.0' },
+      headers: { 
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
       signal: controller.signal,
     });
     
     clearTimeout(timeout);
     
     if (response.ok) {
-      const buffer = await response.arrayBuffer();
-      console.log(`[AEMO] ✓ Old format ${year}-${monthStr} (${(buffer.byteLength / 1024 / 1024).toFixed(2)} MB)`);
-      return buffer;
+      const csvText = await response.text();
+      return csvText;
     }
     
     return null;
@@ -109,105 +111,40 @@ async function fetchAEMOMonthOldFormat(year, month) {
 }
 
 /**
- * Fetch from Next_Day_Dispatch Archive (August 2024 onwards)
- * New location: /Reports/Archive/Next_Day_Dispatch/
- * Filename: PUBLIC_NEXT_DAY_DISPATCH_YYYYMM01.zip
+ * Parse AEMO CSV format
+ * Columns: REGION, SETTLEMENTDATE, TOTALDEMAND, RRP, PERIODTYPE
  */
-async function fetchAEMOMonthNewFormat(year, month) {
-  const monthStr = String(month).padStart(2, '0');
-  const url = `https://nemweb.com.au/Reports/Archive/Next_Day_Dispatch/PUBLIC_NEXT_DAY_DISPATCH_${year}${monthStr}01.zip`;
-  
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000);
-    
-    const response = await fetch(url, {
-      headers: { 'User-Agent': 'australian-energy-dashboard/2.0' },
-      signal: controller.signal,
-    });
-    
-    clearTimeout(timeout);
-    
-    if (response.ok) {
-      const buffer = await response.arrayBuffer();
-      console.log(`[AEMO] ✓ New format ${year}-${monthStr} (${(buffer.byteLength / 1024 / 1024).toFixed(2)} MB)`);
-      return buffer;
-    }
-    
-    return null;
-  } catch (err) {
-    return null;
-  }
-}
-
-async function parseAEMOZip(buffer) {
-  try {
-    const JSZip = await import('jszip').then(m => m.default).catch(() => null);
-    if (!JSZip) return [];
-    
-    const zip = await JSZip.loadAsync(buffer);
-    
-    // Find DISPATCHPRICE CSV file
-    const csvFile = Object.keys(zip.files).find(name => 
-      (name.toUpperCase().includes('DISPATCHPRICE') || name.toUpperCase().includes('DISPATCH_PRICE')) 
-      && name.endsWith('.CSV')
-    );
-    
-    if (!csvFile) {
-      console.log('[parseAEMOZip] No DISPATCHPRICE CSV found in ZIP');
-      return [];
-    }
-    
-    const csvText = await zip.files[csvFile].async('text');
-    return parseAEMOCSV(csvText);
-  } catch (err) {
-    console.error('[parseAEMOZip]', err.message);
-    return [];
-  }
-}
-
-function parseAEMOCSV(csvText) {
+function parseAEMOCSV(csvText, region) {
   const lines = csvText.split('\n');
   const records = [];
   
-  if (lines.length < 3) return records;
+  if (lines.length < 2) return records;
   
-  let headerRow = null;
-  let dataStartRow = 0;
+  // First line is header
+  const headers = lines[0].split(',').map(h => h.trim().toUpperCase());
   
-  // Find header row
-  for (let i = 0; i < Math.min(lines.length, 10); i++) {
-    if (lines[i].startsWith('D,DISPATCHPRICE') || lines[i].startsWith('D,DISPATCH_PRICE') || lines[i].includes('SETTLEMENTDATE')) {
-      headerRow = lines[i];
-      dataStartRow = i + 1;
-      break;
-    }
-  }
+  const dateIdx = headers.indexOf('SETTLEMENTDATE');
+  const priceIdx = headers.indexOf('RRP');
+  const regionIdx = headers.indexOf('REGION');
   
-  if (!headerRow) return records;
-  
-  const headers = headerRow.split(',').map(h => h.replace(/"/g, '').trim());
-  const dateIdx = headers.findIndex(h => h === 'SETTLEMENTDATE');
-  const regionIdx = headers.findIndex(h => h === 'REGIONID');
-  const priceIdx = headers.findIndex(h => h === 'RRP');
-  
-  if (dateIdx === -1 || regionIdx === -1 || priceIdx === -1) {
-    console.log('[parseAEMOCSV] Missing required columns');
+  if (dateIdx === -1 || priceIdx === -1) {
+    console.log(`[parseAEMOCSV] Missing required columns for ${region}`);
     return records;
   }
   
-  for (let i = dataStartRow; i < lines.length; i++) {
+  // Parse data rows (skip header)
+  for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
-    if (!line || !line.startsWith('D,')) continue;
+    if (!line) continue;
     
     const cols = line.split(',');
-    if (cols.length <= Math.max(dateIdx, regionIdx, priceIdx)) continue;
+    if (cols.length <= Math.max(dateIdx, priceIdx)) continue;
     
-    const timestamp = cols[dateIdx].replace(/"/g, '').trim();
-    const region = cols[regionIdx].replace(/"/g, '').trim();
-    const price = parseFloat(cols[priceIdx].replace(/"/g, '').trim());
+    const timestamp = cols[dateIdx].trim();
+    const priceStr = cols[priceIdx].trim();
+    const price = parseFloat(priceStr);
     
-    if (!timestamp || !region || isNaN(price) || !REGIONS.includes(region)) continue;
+    if (!timestamp || isNaN(price)) continue;
     
     records.push({ timestamp, region, price });
   }
@@ -218,6 +155,7 @@ function parseAEMOCSV(csvText) {
 async function fetchAEMOData(startYear, startMonth, endYear, endMonth) {
   const allRecords = [];
   
+  // Generate month list
   const months = [];
   let y = startYear, m = startMonth;
   while (y < endYear || (y === endYear && m <= endMonth)) {
@@ -226,34 +164,33 @@ async function fetchAEMOData(startYear, startMonth, endYear, endMonth) {
     if (m > 12) { m = 1; y++; }
   }
   
-  console.log(`[fetchAEMOData] Fetching ${months.length} months from AEMO`);
+  console.log(`[fetchAEMOData] Fetching ${months.length} months × ${REGIONS.length} regions from AEMO CSV`);
   
   let successCount = 0;
-  const cutoffDate = new Date(2024, 7, 1); // August 2024
+  let totalAttempts = 0;
   
+  // Fetch each month for each region
   for (const { year, month } of months) {
-    const monthDate = new Date(year, month - 1, 1);
-    let buffer = null;
+    const monthKey = `${year}-${String(month).padStart(2, '0')}`;
     
-    // Use appropriate format based on date
-    if (monthDate < cutoffDate) {
-      // Before August 2024: use old MMSDM format
-      buffer = await fetchAEMOMonthOldFormat(year, month);
-    } else {
-      // August 2024 onwards: use new Next_Day_Dispatch format
-      buffer = await fetchAEMOMonthNewFormat(year, month);
-    }
-    
-    if (buffer) {
-      const records = await parseAEMOZip(buffer);
-      if (records.length > 0) {
-        allRecords.push(...records);
-        successCount++;
+    for (const region of REGIONS) {
+      totalAttempts++;
+      
+      const csvText = await fetchAEMOCSV(year, month, region);
+      
+      if (csvText) {
+        const records = parseAEMOCSV(csvText, region);
+        if (records.length > 0) {
+          allRecords.push(...records);
+          successCount++;
+        }
       }
     }
+    
+    console.log(`[fetchAEMOData] ${monthKey}: fetched ${successCount}/${totalAttempts} region-months so far`);
   }
   
-  console.log(`[fetchAEMOData] Success: ${successCount}/${months.length} months, ${allRecords.length} records`);
+  console.log(`[fetchAEMOData] Final: ${successCount}/${totalAttempts} region-months, ${allRecords.length} records`);
   return allRecords;
 }
 
@@ -395,7 +332,7 @@ module.exports = async function handler(req, res) {
   const dateStart = toAESTLocal(startDate);
   const dateEnd = toAESTLocal(endDate);
 
-  console.log('[handler] AEMO-only (correct locations):', { dateStart, dateEnd, years });
+  console.log('[handler] AEMO CSV (lightweight):', { dateStart, dateEnd, years });
 
   try {
     const client = await getClient();
@@ -416,12 +353,12 @@ module.exports = async function handler(req, res) {
 
     const totalMonths = Object.values(merged).reduce((sum, arr) => sum + arr.length, 0);
 
-    console.log(`[handler] Final: ${totalMonths} months with AEMO 5-min data`);
+    console.log(`[handler] Final: ${totalMonths} months with AEMO data`);
 
     if (totalMonths === 0) {
       return res.status(502).json({
         error: 'No AEMO data available',
-        message: 'No months with AEMO 5-minute data',
+        message: 'No months with AEMO data',
         dateRange: { start: dateStart, end: dateEnd },
       });
     }
@@ -430,11 +367,11 @@ module.exports = async function handler(req, res) {
       success: true,
       data: merged,
       fetchedAt: new Date().toISOString(),
-      source: 'AEMO 5-minute data only (MMSDM Historical + Next_Day_Dispatch Archive)',
+      source: 'AEMO Price & Demand CSV (5-minute intervals)',
       dateRange: { start: dateStart, end: dateEnd },
       years,
       aemoRecords: aemoRecords.length,
-      note: 'Max prices and events from AEMO 5-min data only',
+      note: 'Max prices and events from AEMO CSV data',
     });
 
   } catch (err) {
