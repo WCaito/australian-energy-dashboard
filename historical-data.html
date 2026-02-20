@@ -201,6 +201,16 @@
       // ── Step 3: Re-fetch combined result (now in KV) ──────────────────────────
       setProgress(90, 'Combining all regions…');
 
+      // Count how many fan-out calls actually succeeded
+      const succeeded = fanOutResults.filter(r => r.status === 'fulfilled').length;
+      if (succeeded === 0) {
+        setStatus('All region fetches failed — check Vercel function logs for errors.');
+        throw new Error(
+          'All 5 region fetches failed. The Math.max stack overflow fix may not be deployed yet. ' +
+          'Deploy the latest api/historical-all.js, then retry.'
+        );
+      }
+
       let final;
       try {
         final = await fetch(`${baseUrl}?years=2`);
@@ -208,23 +218,36 @@
         throw new Error('Network error on final fetch: ' + err.message);
       }
 
+      const finalJson = await final.json();
+
+      // 202 = still no cache (all fan-outs failed or nothing was stored)
+      if (final.status === 202) {
+        setStatus('Cache still empty after fan-out — region fetches may have failed.');
+        throw new Error(
+          'Data could not be loaded. ' + (finalJson.message || `HTTP ${final.status}`)
+        );
+      }
+
+      // Any other non-2xx that isn't a 206 partial
       if (!final.ok && final.status !== 206) {
-        let errMsg = `HTTP ${final.status}`;
-        try { const b = await final.json(); errMsg = b.message || b.error || errMsg; } catch (_) {}
+        let errMsg = finalJson.message || finalJson.error || `HTTP ${final.status}`;
         setStatus(`Failed after fan-out (${final.status}): ${errMsg}`);
         throw new Error(errMsg);
       }
 
-      const result = await final.json();
       setProgress(100, 'All data loaded');
-      return parseAPIResult(result);
+      return parseAPIResult(finalJson);
     }
 
     // ── Parse the API response into chart-ready data ──────────────────────────────
     function parseAPIResult(result) {
       if (!result.data || typeof result.data !== 'object') {
-        setStatus('Response contained no data field.');
-        throw new Error('No data field in API response');
+        // Give a clear diagnosis based on what the API actually returned
+        const detail = result.message
+          ? `API said: "${result.message}"`
+          : `API returned status field: ${JSON.stringify(result.success)} — no data field present.`;
+        setStatus('No data in API response — ' + detail);
+        throw new Error('No data in API response. ' + detail);
       }
 
       const data = {};
