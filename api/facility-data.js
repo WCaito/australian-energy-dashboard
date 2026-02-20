@@ -23,7 +23,7 @@
 const TARGET_FACILITIES = [
   { searchName: 'townsville',   displayName: 'Townsville Power Station', region: 'QLD1', type: 'gas',   hintCode: 'YABULU'    },
   { searchName: 'collector',    displayName: 'Collector Wind Farm',       region: 'NSW1', type: 'wind',  hintCode: 'COLLECTOR' },
-  { searchName: 'mount emerald',displayName: 'Mount Emerald Wind Farm',   region: 'QLD1', type: 'wind',  hintCode: 'MTEMERALD' },
+  { searchName: 'emerald',displayName: 'Mount Emerald Wind Farm',   region: 'QLD1', type: 'wind',  hintCode: 'MTEMERALD' },
   { searchName: 'collinsville', displayName: 'Collinsville Solar Farm',   region: 'QLD1', type: 'solar', hintCode: 'COLLINSVILLE' },
   { searchName: 'starfish',     displayName: 'Starfish Hill Wind Farm',   region: 'SA1',  type: 'wind',  hintCode: 'STARFISH'  },
   { searchName: 'windy hill',   displayName: 'Windy Hill Wind Farm',      region: 'QLD1', type: 'wind',  hintCode: 'WINDYHILL' },
