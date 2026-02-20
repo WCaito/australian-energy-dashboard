@@ -135,7 +135,7 @@
       const REGIONS_LIST = regions.map(r => r.code);
       const baseUrl = `${API_URL}/api/historical-all`;
 
-      // ── Step 1: Try combined cache ────────────────────────────────────────────
+      // ── Step 1: Try combined KV cache (instant if warmed) ─────────────────────
       setStatus('Checking cache…');
       setProgress(5, 'Checking server cache…');
 
@@ -146,7 +146,7 @@
         throw new Error('Network error reaching API: ' + err.message);
       }
 
-      // Full cache hit → done
+      // Full cache hit → done immediately
       if (initial.ok && initial.status === 200) {
         const result = await initial.json();
         setProgress(100, 'Loaded from cache');
@@ -154,24 +154,28 @@
       }
 
       // ── Step 2: Cache miss or partial → fan out per-region ────────────────────
+      // Each per-region call fetches 24 months in parallel (~5-15s each)
+      // We assemble the result CLIENT-SIDE from the responses — no KV read needed
       let missingRegions = REGIONS_LIST;
+      const assembled = {};  // will hold region → monthly array from fan-out responses
 
+      // If partial cache, seed assembled with what we already have
       if (initial.status === 206) {
-        // Partial cache — only fetch what's missing
-        const partial = await initial.json();
+        const partial = await initial.json().catch(() => ({}));
+        if (partial.data) {
+          for (const r of REGIONS_LIST) {
+            if (Array.isArray(partial.data[r]) && partial.data[r].length > 0) {
+              assembled[r] = partial.data[r];
+            }
+          }
+        }
         missingRegions = partial.missingRegions?.length ? partial.missingRegions : REGIONS_LIST;
         setProgress(10, `Refreshing ${missingRegions.length} region(s) — please wait…`);
         setProgressSub(`Fetching ${missingRegions.join(', ')} in parallel`);
-      } else if (initial.status === 202) {
-        // Full cache miss
-        setProgress(10, 'No cached data — fetching all 5 regions in parallel…');
-        setProgressSub('Downloading 2 years of 5-min AEMO interval data (this takes ~15 seconds)');
       } else {
-        // Unexpected error
-        let errMsg = `HTTP ${initial.status}`;
-        try { const b = await initial.json(); errMsg = b.message || b.error || errMsg; } catch (_) {}
-        setStatus(`Failed (${initial.status}): ${errMsg}`);
-        throw new Error(errMsg);
+        // 202 full miss or any other status
+        setProgress(10, 'Fetching all 5 regions in parallel…');
+        setProgressSub('Downloading 2 years of AEMO 5-min interval data (~15 seconds)');
       }
 
       // Fire all missing-region requests simultaneously
@@ -185,58 +189,68 @@
           }
           const json = await resp.json();
           completed++;
-          const pct = 10 + Math.round((completed / missingRegions.length) * 75);
+          const pct = 10 + Math.round((completed / missingRegions.length) * 80);
           setProgress(pct, `Fetched ${region} (${completed}/${missingRegions.length} regions done)`);
-          return json;
+          return { region, json };
         })
       );
 
-      // Log failures but don't hard-fail — KV may have partial data from prev runs
-      for (const r of fanOutResults) {
-        if (r.status === 'rejected') {
-          console.warn('[historical] Region fan-out failed:', r.reason);
+      // Collect successful region results into assembled — no KV round-trip needed
+      let succeeded = 0;
+      for (const result of fanOutResults) {
+        if (result.status === 'fulfilled') {
+          const { region, json } = result.value;
+          // Per-region endpoint returns { data: [...monthly records...] }
+          if (Array.isArray(json.data) && json.data.length > 0) {
+            assembled[region] = json.data;
+            succeeded++;
+          } else {
+            console.warn(`[historical] ${region}: fan-out succeeded but returned no data`);
+          }
+        } else {
+          console.warn('[historical] Region fan-out failed:', result.reason);
         }
       }
 
-      // ── Step 3: Re-fetch combined result (now in KV) ──────────────────────────
-      setProgress(90, 'Combining all regions…');
-
-      // Count how many fan-out calls actually succeeded
-      const succeeded = fanOutResults.filter(r => r.status === 'fulfilled').length;
       if (succeeded === 0) {
-        setStatus('All region fetches failed — check Vercel function logs for errors.');
+        setStatus('All region fetches failed — check Vercel function logs.');
         throw new Error(
-          'All 5 region fetches failed. The Math.max stack overflow fix may not be deployed yet. ' +
-          'Deploy the latest api/historical-all.js, then retry.'
+          `All ${missingRegions.length} region fetches failed. ` +
+          'Check Vercel logs for errors in api/historical-all.js.'
         );
       }
 
-      let final;
-      try {
-        final = await fetch(`${baseUrl}?years=2`);
-      } catch (err) {
-        throw new Error('Network error on final fetch: ' + err.message);
+      // ── Step 3: Assemble from fan-out responses (no KV read needed) ───────────
+      setProgress(95, `Assembling ${Object.keys(assembled).length} regions…`);
+
+      const hasAny = Object.values(assembled).some(arr => arr.length > 0);
+      if (!hasAny) {
+        throw new Error('Fan-out completed but no region data was returned.');
       }
 
-      const finalJson = await final.json();
+      const totalMonths = Object.values(assembled).reduce((s, a) => s + a.length, 0);
+      const missing = REGIONS_LIST.filter(r => !assembled[r]);
+      const noticeExtra = missing.length ? ` (${missing.join(', ')} unavailable)` : '';
+      updateDataSourceNotice(
+        `✓ AEMO 5-min interval data via OpenElectricity. ${totalMonths} monthly records across ${succeeded} regions.${noticeExtra}`
+      );
+      setStatus(`Data loaded — ${totalMonths} months across ${succeeded} region(s).`, true);
+      setProgress(100, 'Done');
 
-      // 202 = still no cache (all fan-outs failed or nothing was stored)
-      if (final.status === 202) {
-        setStatus('Cache still empty after fan-out — region fetches may have failed.');
-        throw new Error(
-          'Data could not be loaded. ' + (finalJson.message || `HTTP ${final.status}`)
-        );
+      // Convert raw API records into chart-ready objects
+      const data = {};
+      for (const region of regions) {
+        const raw = assembled[region.code];
+        data[region.code] = Array.isArray(raw)
+          ? raw.map(it => ({
+              date: new Date(it.date),
+              averagePrice: it.averagePrice,
+              maxPrice: it.maxPrice,
+              priceEvents: it.priceEvents,
+            }))
+          : [];
       }
-
-      // Any other non-2xx that isn't a 206 partial
-      if (!final.ok && final.status !== 206) {
-        let errMsg = finalJson.message || finalJson.error || `HTTP ${final.status}`;
-        setStatus(`Failed after fan-out (${final.status}): ${errMsg}`);
-        throw new Error(errMsg);
-      }
-
-      setProgress(100, 'All data loaded');
-      return parseAPIResult(finalJson);
+      return data;
     }
 
     // ── Parse the API response into chart-ready data ──────────────────────────────
