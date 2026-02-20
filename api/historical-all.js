@@ -226,6 +226,9 @@ function aggregateAEMOMonthly(records, regions) {
     for (const [monthKey, prices] of Object.entries(buckets[region])) {
       if (!prices.length) continue;
 
+      let max = -Infinity, min = Infinity;
+      for (const p of prices) { if (p > max) max = p; if (p < min) min = p; }
+
       const negPrices     = prices.filter(p => p < 0);
       const highPrices    = prices.filter(p => p >= 300 && p < 1000);
       const extremePrices = prices.filter(p => p >= 1000);
@@ -234,8 +237,8 @@ function aggregateAEMOMonthly(records, regions) {
         : 0;
 
       out[region][monthKey] = {
-        maxPrice: Number(Math.max(...prices).toFixed(2)),
-        minPrice: Number(Math.min(...prices).toFixed(2)),
+        maxPrice: Number(max.toFixed(2)),
+        minPrice: Number(min.toFixed(2)),
         totalIntervals: prices.length,
         priceEvents: {
           negative: { count: negPrices.length,     avgPrice: avg(negPrices) },
