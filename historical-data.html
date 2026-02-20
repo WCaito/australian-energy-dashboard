@@ -464,6 +464,7 @@
     // ── Render all charts ─────────────────────────────────────────────────────────
     async function renderCharts() {
       const chartType = document.getElementById('chartType').value;
+      const container = document.getElementById('chartsContainer');
       showProgressUI();
 
       try {
@@ -510,7 +511,6 @@
 
       } catch (err) {
         console.error('[historical] render error:', err);
-        const container = document.getElementById('chartsContainer');
         container.innerHTML = `
           <div class="chart-container">
             <div style="padding:40px;text-align:center;">
