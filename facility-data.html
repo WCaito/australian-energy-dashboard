@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Generator Performance — Australian Energy Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-adapter-date-fns/3.0.0/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <style>
+    :root {
+      --bg:          #f7f5f0;
+      --surface:     #ffffff;
+      --border:      #e8e4dc;
+      --text-1:      #0f0e0c;
+      --text-2:      #5c5751;
+      --text-3:      #9c9690;
+      --accent:      #1a1916;
+      --wind:        #2563eb;
+      --wind-light:  #dbeafe;
+      --solar:       #d97706;
+      --solar-light: #fef3c7;
+      --gas:         #dc2626;
+      --gas-light:   #fee2e2;
+      --price-line:  #6b7280;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'IBM Plex Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text-1);
+      min-height: 100vh;
+    }
+
+    /* ── Layout ── */
+    .container {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 24px 64px;
+    }
+
+    /* ── Header ── */
+    header {
+      padding: 40px 0 32px;
+      border-bottom: 1.5px solid var(--border);
+      margin-bottom: 40px;
+    }
+
+    .header-content {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    h1 {
+      font-family: 'IBM Plex Serif', Georgia, serif;
+      font-size: 2.2rem;
+      font-weight: 600;
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+      color: var(--text-1);
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      font-size: 0.875rem;
+      color: var(--text-2);
+      font-weight: 400;
+    }
+
+    .nav-links { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+
+    .nav-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 9px 18px;
+      background: var(--text-1);
+      color: #fff;
+      text-decoration: none;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      transition: background 0.15s;
+    }
+    .nav-link:hover { background: var(--wind); }
+    .nav-link.secondary {
+      background: transparent;
+      color: var(--text-1);
+      border: 1.5px solid var(--border);
+    }
+    .nav-link.secondary:hover { background: var(--wind-light); border-color: var(--wind); }
+
+    /* ── Date range badge ── */
+    .date-range {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--text-2);
+      background: var(--border);
+      padding: 4px 10px;
+      display: inline-block;
+      margin-top: 6px;
+    }
+
+    /* ── Legend ── */
+    .legend {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      margin-bottom: 32px;
+      padding: 16px 20px;
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.8125rem;
+      color: var(--text-2);
+    }
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* ── Loading ── */
+    .loading-screen {
+      text-align: center;
+      padding: 80px 24px;
+    }
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 2.5px solid var(--border);
+      border-top-color: var(--text-1);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 20px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-msg { font-size: 0.9rem; color: var(--text-2); margin-bottom: 8px; }
+    .loading-sub { font-size: 0.8rem; color: var(--text-3); font-family: 'IBM Plex Mono', monospace; }
+
+    /* ── Error screen ── */
+    .error-screen {
+      background: #fff5f5;
+      border: 1.5px solid #fecaca;
+      padding: 32px;
+      margin: 40px 0;
+    }
+    .error-screen h3 { color: var(--gas); margin-bottom: 12px; font-size: 1rem; }
+    .error-screen p  { color: #7f1d1d; font-size: 0.875rem; margin-bottom: 8px; }
+    .error-screen code {
+      font-family: 'IBM Plex Mono', monospace;
+      background: #fee2e2;
+      padding: 2px 6px;
+      font-size: 0.8rem;
+      border-radius: 2px;
+    }
+    .retry-btn {
+      display: inline-block;
+      margin-top: 16px;
+      padding: 9px 18px;
+      background: var(--text-1);
+      color: #fff;
+      border: none;
+      cursor: pointer;
+      font-size: 0.8125rem;
+      font-family: inherit;
+    }
+    .retry-btn:hover { background: var(--gas); }
+
+    /* ── Facility grid ── */
+    .facility-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 32px;
+    }
+    @media (max-width: 900px) {
+      .facility-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ── Facility card ── */
+    .facility-card {
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .card-header {
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .card-title {
+      font-family: 'IBM Plex Serif', serif;
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text-1);
+      line-height: 1.3;
+    }
+
+    .card-meta {
+      font-size: 0.75rem;
+      color: var(--text-2);
+      margin-top: 4px;
+      font-family: 'IBM Plex Mono', monospace;
+    }
+
+    .type-badge {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      padding: 3px 8px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .type-badge.wind  { background: var(--wind-light);  color: var(--wind);  }
+    .type-badge.solar { background: var(--solar-light); color: var(--solar); }
+    .type-badge.gas   { background: var(--gas-light);   color: var(--gas);   }
+
+    /* ── Stats row ── */
+    .stats-row {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .stat {
+      flex: 1;
+      padding: 14px 16px;
+      border-right: 1px solid var(--border);
+    }
+    .stat:last-child { border-right: none; }
+    .stat-label { font-size: 0.6875rem; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+    .stat-value { font-family: 'IBM Plex Mono', monospace; font-size: 0.9375rem; font-weight: 500; color: var(--text-1); }
+    .stat-value.muted { color: var(--text-2); }
+
+    /* ── Chart wrapper ── */
+    .chart-wrapper {
+      padding: 20px;
+      height: 260px;
+      position: relative;
+    }
+
+    /* ── Not found banner ── */
+    .not-found-banner {
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      padding: 8px 16px;
+      font-size: 0.75rem;
+      color: #92400e;
+      font-family: 'IBM Plex Mono', monospace;
+    }
+
+    /* ── No data placeholder ── */
+    .no-data {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 200px;
+      color: var(--text-3);
+      font-size: 0.875rem;
+      font-style: italic;
+    }
+
+    /* ── Source footer ── */
+    .page-footer {
+      margin-top: 48px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      font-size: 0.75rem;
+      color: var(--text-3);
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <div class="header-content">
+      <div>
+        <h1>Generator Performance</h1>
+        <div class="subtitle">5-minute interval power output &amp; regional spot price · Last 8 days</div>
+        <div class="date-range" id="dateRange">Fetching data…</div>
+      </div>
+      <div class="nav-links">
+        <a href="australian-energy-market.html" class="nav-link secondary">← Live Dashboard</a>
+        <a href="historical-data.html" class="nav-link secondary">Historical Data</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Legend -->
+  <div class="legend" id="legend" style="display:none">
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#2563eb"></div>
+      <span>Power output (MW) — left axis</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#6b7280"></div>
+      <span>Regional spot price ($/MWh) — right axis</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#2563eb; opacity:.25; border-radius:0; width:18px; height:4px"></div>
+      <span>Wind farm</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#d97706; opacity:.25; border-radius:0; width:18px; height:4px"></div>
+      <span>Solar farm</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#dc2626; opacity:.25; border-radius:0; width:18px; height:4px"></div>
+      <span>Gas / thermal</span>
+    </div>
+  </div>
+
+  <!-- Main content area -->
+  <div id="main">
+    <div class="loading-screen">
+      <div class="spinner"></div>
+      <div class="loading-msg">Fetching 5-min interval data for 6 generators…</div>
+      <div class="loading-sub">This may take 15–30 seconds</div>
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <span>Source: OpenElectricity API — AEMO NEM dispatch data</span>
+    <span id="fetchedAt"></span>
+  </div>
+</div>
+
+<script>
+  // ── Config ────────────────────────────────────────────────────────────────────
+
+  const API_URL = '';  // same-origin
+
+  const TYPE_COLORS = {
+    wind:  { line: '#2563eb', fill: 'rgba(37,99,235,0.08)'  },
+    solar: { line: '#d97706', fill: 'rgba(217,119,6,0.08)'  },
+    gas:   { line: '#dc2626', fill: 'rgba(220,38,38,0.08)'  },
+  };
+
+  const charts = {};
+
+  // ── Fetch data ────────────────────────────────────────────────────────────────
+
+  async function loadData() {
+    const resp = await fetch(`${API_URL}/api/facility-data`);
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      throw new Error(body.error || `HTTP ${resp.status}`);
+    }
+    return resp.json();
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────────
+
+  function fmtDate(isoStr) {
+    return new Date(isoStr).toLocaleDateString('en-AU', {
+      day: '2-digit', month: 'short', year: 'numeric'
+    });
+  }
+
+  function formatStat(val, suffix = '', decimals = 1) {
+    if (val === null || val === undefined) return '—';
+    return `${parseFloat(val).toFixed(decimals)}${suffix}`;
+  }
+
+  function renderFacility(f) {
+    const colors = TYPE_COLORS[f.type] || TYPE_COLORS.wind;
+    const s = f.stats;
+
+    const notFoundBanner = !f.found
+      ? `<div class="not-found-banner">⚠ Facility code resolved via hint (${f.code}) — may have limited data</div>`
+      : '';
+
+    const cardEl = document.createElement('div');
+    cardEl.className = 'facility-card';
+    cardEl.id = `card-${f.code}`;
+    cardEl.innerHTML = `
+      ${notFoundBanner}
+      <div class="card-header">
+        <div>
+          <div class="card-title">${f.name}</div>
+          <div class="card-meta">${f.code} · ${f.region}${f.capacity ? ' · ' + f.capacity + ' MW installed' : ''}</div>
+        </div>
+        <span class="type-badge ${f.type}">${f.type}</span>
+      </div>
+      <div class="stats-row">
+        <div class="stat">
+          <div class="stat-label">Avg Output</div>
+          <div class="stat-value">${formatStat(s.avgPowerMW, ' MW', 1)}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Peak Output</div>
+          <div class="stat-value">${formatStat(s.maxPowerMW, ' MW', 1)}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Capacity Factor</div>
+          <div class="stat-value ${s.capacityFactorPct === null ? 'muted' : ''}">${formatStat(s.capacityFactorPct, '%', 1)}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Avg Price</div>
+          <div class="stat-value">${s.avgPricePerMWh !== null ? '$' + formatStat(s.avgPricePerMWh, '/MWh', 0) : '—'}</div>
+        </div>
+      </div>
+      <div class="chart-wrapper">
+        <canvas id="chart-${f.code}"></canvas>
+      </div>
+    `;
+
+    return cardEl;
+  }
+
+  function buildChart(f) {
+    const canvas = document.getElementById(`chart-${f.code}`);
+    if (!canvas) return;
+
+    if (!f.data || !f.data.length) {
+      const wrapper = canvas.closest('.chart-wrapper');
+      wrapper.innerHTML = '<div class="no-data">No data available for this period</div>';
+      return;
+    }
+
+    const colors = TYPE_COLORS[f.type] || TYPE_COLORS.wind;
+
+    // Down-sample for performance: show every Nth point if too many
+    let rows = f.data;
+    const MAX_POINTS = 1200; // ~4 days at 5min = 1152 pts
+    if (rows.length > MAX_POINTS) {
+      const step = Math.ceil(rows.length / MAX_POINTS);
+      rows = rows.filter((_, i) => i % step === 0);
+    }
+
+    const labels    = rows.map(r => new Date(r.ts));
+    const powerData = rows.map(r => r.power);
+    const priceData = rows.map(r => r.price);
+
+    const hasPrices = priceData.some(p => p !== null);
+
+    if (charts[f.code]) charts[f.code].destroy();
+
+    const datasets = [
+      {
+        label: 'Power (MW)',
+        data: powerData,
+        borderColor: colors.line,
+        backgroundColor: colors.fill,
+        borderWidth: 1.2,
+        pointRadius: 0,
+        fill: true,
+        tension: 0.2,
+        yAxisID: 'y',
+      },
+    ];
+
+    if (hasPrices) {
+      datasets.push({
+        label: 'Spot Price ($/MWh)',
+        data: priceData,
+        borderColor: 'rgba(107,114,128,0.7)',
+        backgroundColor: 'transparent',
+        borderWidth: 1,
+        borderDash: [3, 2],
+        pointRadius: 0,
+        fill: false,
+        tension: 0.1,
+        yAxisID: 'y1',
+        spanGaps: true,
+      });
+    }
+
+    charts[f.code] = new Chart(canvas, {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#0f0e0c',
+            titleFont: { family: "'IBM Plex Mono', monospace", size: 10 },
+            bodyFont:  { family: "'IBM Plex Mono', monospace", size: 11 },
+            callbacks: {
+              title: ctx => {
+                const d = new Date(ctx[0].parsed.x);
+                return d.toLocaleString('en-AU', {
+                  day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
+                });
+              },
+              label: ctx => {
+                if (ctx.dataset.yAxisID === 'y')  return `Output: ${ctx.parsed.y?.toFixed(1) ?? '—'} MW`;
+                if (ctx.dataset.yAxisID === 'y1') return `Price:  $${ctx.parsed.y?.toFixed(2) ?? '—'}/MWh`;
+                return ctx.formattedValue;
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            type: 'time',
+            time: { tooltipFormat: 'dd MMM HH:mm', displayFormats: { hour: 'dd MMM HH:mm', day: 'dd MMM' } },
+            grid: { color: '#e8e4dc', lineWidth: 0.7 },
+            ticks: { color: '#9c9690', font: { family: "'IBM Plex Mono', monospace", size: 9 }, maxTicksLimit: 8 },
+          },
+          y: {
+            position: 'left',
+            beginAtZero: true,
+            grid: { color: '#e8e4dc', lineWidth: 0.7 },
+            ticks: {
+              color: colors.line,
+              font: { family: "'IBM Plex Mono', monospace", size: 9 },
+              callback: v => v + ' MW',
+            },
+            title: {
+              display: true,
+              text: 'Output (MW)',
+              color: colors.line,
+              font: { family: "'IBM Plex Sans', sans-serif", size: 9, weight: '500' },
+            },
+          },
+          ...(hasPrices ? {
+            y1: {
+              position: 'right',
+              grid: { drawOnChartArea: false },
+              ticks: {
+                color: '#6b7280',
+                font: { family: "'IBM Plex Mono', monospace", size: 9 },
+                callback: v => '$' + v,
+              },
+              title: {
+                display: true,
+                text: 'Price ($/MWh)',
+                color: '#6b7280',
+                font: { family: "'IBM Plex Sans', sans-serif", size: 9, weight: '500' },
+              },
+            },
+          } : {}),
+        },
+      },
+    });
+  }
+
+  // ── Orchestrate ───────────────────────────────────────────────────────────────
+
+  async function init() {
+    const mainEl = document.getElementById('main');
+
+    try {
+      const data = await loadData();
+
+      // Update header
+      document.getElementById('dateRange').textContent =
+        `${fmtDate(data.dateStart)} → ${fmtDate(data.dateEnd)} AEST`;
+      document.getElementById('fetchedAt').textContent =
+        `Fetched: ${new Date(data.fetchedAt).toLocaleString('en-AU')}`;
+      document.getElementById('legend').style.display = 'flex';
+
+      // Build grid
+      const grid = document.createElement('div');
+      grid.className = 'facility-grid';
+
+      for (const f of data.facilities) {
+        grid.appendChild(renderFacility(f));
+      }
+
+      mainEl.innerHTML = '';
+      mainEl.appendChild(grid);
+
+      // Build charts after DOM settles
+      requestAnimationFrame(() => {
+        for (const f of data.facilities) {
+          buildChart(f);
+        }
+      });
+
+    } catch (err) {
+      console.error('[facility-data] Error:', err);
+      mainEl.innerHTML = `
+        <div class="error-screen">
+          <h3>⚠ Unable to Load Generator Data</h3>
+          <p>${err.message}</p>
+          <p style="margin-top:12px;font-size:.8rem;color:#7f1d1d;">
+            Check that <code>OPENELECTRICITY_API_KEY</code> is set in your Vercel environment variables,
+            and that the <code>openelectricity</code> package is installed.
+          </p>
+          <button class="retry-btn" onclick="location.reload()">↺ Retry</button>
+        </div>
+      `;
+    }
+  }
+
+  init();
+</script>
+</body>
+</html>
