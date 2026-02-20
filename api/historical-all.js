@@ -33,23 +33,34 @@
 
 const REGIONS = ['NSW1', 'VIC1', 'QLD1', 'SA1', 'TAS1'];
 
-// ─── KV helpers (gracefully no-ops if @vercel/kv is not installed) ────────────
+// ─── KV helpers (uses @upstash/redis, gracefully no-ops if not configured) ────────
+
+async function getRedis() {
+  const { Redis } = await import('@upstash/redis');
+  return new Redis({
+    url: process.env.UPSTASH_REDIS_REST_URL,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN,
+  });
+}
 
 async function kvGet(key) {
   try {
-    const { kv } = await import('@vercel/kv');
-    return await kv.get(key);
-  } catch {
+    if (!process.env.UPSTASH_REDIS_REST_URL) return null;
+    const redis = await getRedis();
+    return await redis.get(key);
+  } catch (err) {
+    console.warn('[kvGet] Redis unavailable:', err.message);
     return null;
   }
 }
 
 async function kvSet(key, value, exSeconds = 86400) {
   try {
-    const { kv } = await import('@vercel/kv');
-    await kv.set(key, value, { ex: exSeconds });
-  } catch {
-    // KV not configured – silently skip caching
+    if (!process.env.UPSTASH_REDIS_REST_URL) return;
+    const redis = await getRedis();
+    await redis.set(key, value, { ex: exSeconds });
+  } catch (err) {
+    console.warn('[kvSet] Redis unavailable:', err.message);
   }
 }
 
