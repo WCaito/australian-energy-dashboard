@@ -26,14 +26,22 @@ const CACHE_TTL = 25 * 60 * 60; // 25 hours
 
 // ─── KV ───────────────────────────────────────────────────────────────────────
 
+async function getRedis() {
+  const { Redis } = await import('@upstash/redis');
+  return new Redis({
+    url: process.env.UPSTASH_REDIS_REST_URL,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN,
+  });
+}
+
 async function kvSet(key, value, exSeconds) {
-  const { kv } = await import('@vercel/kv');
-  await kv.set(key, value, { ex: exSeconds });
+  const redis = await getRedis();
+  await redis.set(key, value, { ex: exSeconds });
 }
 
 async function kvGet(key) {
-  const { kv } = await import('@vercel/kv');
-  return kv.get(key);
+  const redis = await getRedis();
+  return redis.get(key);
 }
 
 // ─── OpenElectricity ──────────────────────────────────────────────────────────
