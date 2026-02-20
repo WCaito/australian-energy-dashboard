@@ -6,7 +6,6 @@
   <title>Generator Performance — Australian Energy Dashboard</title>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-adapter-date-fns/3.0.0/chartjs-adapter-date-fns.bundle.min.js"></script>
   <style>
     :root {
       --bg:          #f7f5f0;
@@ -428,6 +427,14 @@
     return cardEl;
   }
 
+  function fmtAxisLabel(isoStr) {
+    // Pre-format timestamp as a string — avoids needing chartjs-adapter-date-fns
+    const d = new Date(isoStr);
+    const day = d.toLocaleDateString('en-AU', { day: '2-digit', month: 'short' });
+    const time = d.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false });
+    return `${day} ${time}`;
+  }
+
   function buildChart(f) {
     const canvas = document.getElementById(`chart-${f.code}`);
     if (!canvas) return;
@@ -440,15 +447,17 @@
 
     const colors = TYPE_COLORS[f.type] || TYPE_COLORS.wind;
 
-    // Down-sample for performance: show every Nth point if too many
+    // Down-sample for performance: target ~800 visible points max
     let rows = f.data;
-    const MAX_POINTS = 1200; // ~4 days at 5min = 1152 pts
+    const MAX_POINTS = 800;
     if (rows.length > MAX_POINTS) {
       const step = Math.ceil(rows.length / MAX_POINTS);
       rows = rows.filter((_, i) => i % step === 0);
     }
 
-    const labels    = rows.map(r => new Date(r.ts));
+    // Pre-format labels as strings — no date adapter needed
+    const labels    = rows.map(r => fmtAxisLabel(r.ts));
+    const rawDates  = rows.map(r => r.ts);  // kept for tooltip
     const powerData = rows.map(r => r.power);
     const priceData = rows.map(r => r.price);
 
@@ -501,10 +510,13 @@
             titleFont: { family: "'IBM Plex Mono', monospace", size: 10 },
             bodyFont:  { family: "'IBM Plex Mono', monospace", size: 11 },
             callbacks: {
+              // Use the raw ISO date stored separately for accurate tooltip time
               title: ctx => {
-                const d = new Date(ctx[0].parsed.x);
-                return d.toLocaleString('en-AU', {
-                  day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
+                const iso = rawDates[ctx[0].dataIndex];
+                if (!iso) return ctx[0].label;
+                return new Date(iso).toLocaleString('en-AU', {
+                  day: '2-digit', month: 'short',
+                  hour: '2-digit', minute: '2-digit', hour12: false
                 });
               },
               label: ctx => {
@@ -517,10 +529,19 @@
         },
         scales: {
           x: {
-            type: 'time',
-            time: { tooltipFormat: 'dd MMM HH:mm', displayFormats: { hour: 'dd MMM HH:mm', day: 'dd MMM' } },
+            type: 'category',
             grid: { color: '#e8e4dc', lineWidth: 0.7 },
-            ticks: { color: '#9c9690', font: { family: "'IBM Plex Mono', monospace", size: 9 }, maxTicksLimit: 8 },
+            ticks: {
+              color: '#9c9690',
+              font: { family: "'IBM Plex Mono', monospace", size: 9 },
+              maxTicksLimit: 8,
+              maxRotation: 0,
+              // Show only every Nth tick label to avoid crowding
+              callback: function(val, idx) {
+                const step = Math.max(1, Math.floor(this.chart.data.labels.length / 8));
+                return idx % step === 0 ? this.getLabelForValue(val) : '';
+              },
+            },
           },
           y: {
             position: 'left',
