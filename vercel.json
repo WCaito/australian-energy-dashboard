@@ -20,6 +20,9 @@
     },
     "api/oe-probe.js": {
       "maxDuration": 60
+    },
+    "api/facility-data.js": {
+      "maxDuration": 60
     }
   },
   "crons": [
