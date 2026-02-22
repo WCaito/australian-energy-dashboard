@@ -46,6 +46,19 @@ function toLocalNaive(date) {
   return aest.toISOString().slice(0, 19);
 }
 
+// Normalise a timestamp to an unambiguous ISO string.
+// The OE SDK returns naive AEST strings like "2026-02-12T14:30:00" (no Z, no offset).
+// We append +10:00 so the browser parses them as the correct wall-clock AEST time
+// rather than as local browser time.
+function normaliseTs(ts) {
+  if (!ts) return ts;
+  const s = String(ts);
+  // Already has Z or explicit offset — leave alone
+  if (s.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(s)) return s;
+  // Naive string — treat as AEST (UTC+10)
+  return s + '+10:00';
+}
+
 // ─── Facility discovery by name ────────────────────────────────────────────────
 
 async function discoverFacilities(client) {
@@ -121,7 +134,14 @@ async function fetchFacilityPower(client, facilityCode, dateStart, dateEnd) {
     }
 
     return Object.values(byInterval)
-      .map(v => ({ ts: v.ts, power: parseFloat(v.power.toFixed(2)) }))
+      .map(v => ({
+        // Normalise to proper UTC ISO string.
+        // OE returns naive AEST strings (no Z); append Z so the browser
+        // doesn't misread them as local time — they ARE already UTC+10,
+        // so we store them as explicit UTC+10 offset.
+        ts: normaliseTs(v.ts),
+        power: parseFloat(v.power.toFixed(2)),
+      }))
       .sort((a, b) => new Date(a.ts) - new Date(b.ts));
   } catch (err) {
     console.error(`[facility-data] Power fetch error for ${facilityCode}:`, err.message);
@@ -157,7 +177,7 @@ async function fetchRegionalPrices(client, dateStart, dateEnd) {
       const price  = row.price;
       if (!region || !ts || price == null) continue;
       if (!out[region]) out[region] = {};
-      out[region][ts] = parseFloat(price.toFixed(2));
+      out[region][normaliseTs(ts)] = parseFloat(price.toFixed(2));
     }
     return out;
   } catch (err) {
