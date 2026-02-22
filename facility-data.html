@@ -371,8 +371,11 @@
   // ── Render ────────────────────────────────────────────────────────────────────
 
   function fmtDate(isoStr) {
-    return new Date(isoStr).toLocaleDateString('en-AU', {
-      day: '2-digit', month: 'short', year: 'numeric'
+    // isoStr is a naive AEST datetime from the API (no Z suffix) — treat as-is
+    // If it has a Z, shift to AEST first
+    const d = isoStr.endsWith('Z') ? toAEST(isoStr) : new Date(isoStr);
+    return d.toLocaleDateString('en-AU', {
+      day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC'
     });
   }
 
@@ -427,12 +430,27 @@
     return cardEl;
   }
 
-  function fmtAxisLabel(isoStr) {
-    // Pre-format timestamp as a string — avoids needing chartjs-adapter-date-fns
+  // Always render timestamps in AEST (UTC+10), regardless of browser timezone
+  function toAEST(isoStr) {
     const d = new Date(isoStr);
-    const day = d.toLocaleDateString('en-AU', { day: '2-digit', month: 'short' });
-    const time = d.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false });
+    // Shift UTC → AEST by adding 10 hours, then read as UTC to get AEST wall time
+    return new Date(d.getTime() + 10 * 3600 * 1000);
+  }
+
+  function fmtAxisLabel(isoStr) {
+    const d = toAEST(isoStr);
+    const day  = d.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', timeZone: 'UTC' });
+    const time = d.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' });
     return `${day} ${time}`;
+  }
+
+  function fmtTooltipTime(isoStr) {
+    const d = toAEST(isoStr);
+    return d.toLocaleString('en-AU', {
+      day: '2-digit', month: 'short',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+      timeZone: 'UTC'
+    }) + ' AEST';
   }
 
   function buildChart(f) {
@@ -513,11 +531,7 @@
               // Use the raw ISO date stored separately for accurate tooltip time
               title: ctx => {
                 const iso = rawDates[ctx[0].dataIndex];
-                if (!iso) return ctx[0].label;
-                return new Date(iso).toLocaleString('en-AU', {
-                  day: '2-digit', month: 'short',
-                  hour: '2-digit', minute: '2-digit', hour12: false
-                });
+                return iso ? fmtTooltipTime(iso) : ctx[0].label;
               },
               label: ctx => {
                 if (ctx.dataset.yAxisID === 'y')  return `Output: ${ctx.parsed.y?.toFixed(1) ?? '—'} MW`;
