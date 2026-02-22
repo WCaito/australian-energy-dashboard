@@ -1,14 +1,22 @@
 /**
  * bess-nsw.js  —  NSW BESS 5-minute charge, discharge & revenue
  *
- * getFacilities() only accepts: network_id, status_id
- * network_region filter causes 422 — we filter client-side instead.
+ * KEY DATA MODEL (from OE docs):
+ *   OE splits each battery facility into two separate units:
+ *     • battery_discharging unit  → power is ALWAYS POSITIVE = MW exported to grid
+ *     • battery_charging unit     → power is ALWAYS POSITIVE = MW imported from grid
+ *
+ *   Both units report positive-only values. You CANNOT split by sign after summing.
+ *   You must route each unit's power to the correct bucket using unit_fueltech.
+ *
+ *   market_value for discharging units = revenue earned (positive)
+ *   market_value for charging units    = cost incurred (negative)
+ *   Sum of both = net arbitrage P&L
+ *
+ * CAPACITY:
+ *   Only count battery_discharging unit capacity — the charging unit repeats
+ *   the same figure, so summing both doubles the real installed capacity.
  */
-
-const BATTERY_FUELTECHS = new Set([
-  'battery', 'battery_charging', 'battery_discharging',
-  'battery_energy', 'storage',
-]);
 
 // ─── Client ───────────────────────────────────────────────────────────────────
 
@@ -38,16 +46,12 @@ function normaliseTs(ts) {
 async function discoverNSWBatteries(client) {
   console.log('[bess-nsw] Calling getFacilities (network_id=NEM, status_id=operating)');
 
-  // IMPORTANT: only network_id and status_id are accepted.
-  // Passing network_region causes a 422 Unprocessable Entity error.
-  // We filter to NSW1 client-side after receiving all facilities.
   let allRows = [];
   try {
     const result = await client.getFacilities({
       network_id: 'NEM',
       status_id: ['operating'],
     });
-    // SDK returns { table } — table has getRecords() or rows
     const tbl = result?.table ?? result;
     allRows = typeof tbl?.getRecords === 'function'
       ? tbl.getRecords()
@@ -59,41 +63,45 @@ async function discoverNSWBatteries(client) {
 
   console.log('[bess-nsw] Total NEM rows received:', allRows.length);
 
-  // Log field names from first row to debug filter issues
+  // Log first row keys so we can catch future field-name changes
   if (allRows.length > 0) {
-    console.log('[bess-nsw] First row keys:', Object.keys(allRows[0]).join(', '));
-    console.log('[bess-nsw] First row sample:', JSON.stringify({
-      facility_code: allRows[0].facility_code,
-      facility_name: allRows[0].facility_name,
-      network_region: allRows[0].network_region,
-      fueltech_id: allRows[0].fueltech_id,
-      status_id: allRows[0].status_id,
-    }));
+    console.log('[bess-nsw] Row field names:', Object.keys(allRows[0]).join(', '));
   }
 
-  // Actual API field names (confirmed from live logs):
-  //   facility_region  (not network_region / region)
-  //   unit_fueltech    (not fueltech_id / fueltech)
+  // Filter: confirmed field names from 2026-02-22 logs:
+  //   facility_region  (not network_region)
+  //   unit_fueltech    (not fueltech_id)
   const nswBatteryRows = allRows.filter(r => {
     const region   = (r.facility_region || '').trim().toUpperCase();
     const fueltech = (r.unit_fueltech   || '').trim().toLowerCase();
-    return region === 'NSW1' && BATTERY_FUELTECHS.has(fueltech);
+    const isBattery = fueltech === 'battery_discharging'
+                   || fueltech === 'battery_charging'
+                   || fueltech === 'battery'
+                   || fueltech === 'battery_energy'
+                   || fueltech === 'storage';
+    return region === 'NSW1' && isBattery;
   });
 
-  console.log('[bess-nsw] NSW battery rows after filter:', nswBatteryRows.length);
+  console.log('[bess-nsw] NSW battery unit rows after filter:', nswBatteryRows.length);
 
   if (nswBatteryRows.length === 0 && allRows.length > 0) {
+    // Log all distinct values so we can diagnose mismatches
     const regions   = [...new Set(allRows.map(r => r.facility_region || '?'))].sort();
     const fueltechs = [...new Set(allRows.map(r => r.unit_fueltech   || '?'))].sort();
-    console.log('[bess-nsw] All facility_region values:', regions.join(', '));
-    console.log('[bess-nsw] All unit_fueltech values:', fueltechs.join(', '));
+    console.log('[bess-nsw] All facility_region values seen:', regions.join(', '));
+    console.log('[bess-nsw] All unit_fueltech values seen:',   fueltechs.join(', '));
+    return [];
   }
 
-  // Group unit rows by facility_code
+  // Group by facility_code, building a unit→fueltech map per facility.
+  // IMPORTANT: only add capacity from battery_DISCHARGING units —
+  // the charging unit repeats the same MW figure, so summing both doubles it.
   const byCode = {};
   for (const row of nswBatteryRows) {
-    const code = (row.facility_code || '').trim();
-    const name =  row.facility_name || code;
+    const code     = (row.facility_code || '').trim();
+    const name     =  row.facility_name || code;
+    const unitCode = (row.unit_code     || '').trim();
+    const fueltech = (row.unit_fueltech || '').trim().toLowerCase();
     if (!code) continue;
 
     if (!byCode[code]) {
@@ -102,26 +110,33 @@ async function discoverNSWBatteries(client) {
         name,
         region: 'NSW1',
         capacityMW: 0,
-        capacityMWh: null,
-        units: [],
+        unitMap: {},   // unitCode → fueltech, used during data fetch
       };
     }
 
-    const cap = parseFloat(row.unit_capacity || 0) || 0;
-    byCode[code].capacityMW += cap;
+    // Record this unit's fueltech so fetchBESSData can route power correctly
+    if (unitCode) byCode[code].unitMap[unitCode] = fueltech;
 
-    byCode[code].units.push(row.unit_code || code);
+    // Only accumulate capacity from discharging units (or generic 'battery' units)
+    const cap = parseFloat(row.unit_capacity || 0) || 0;
+    if (fueltech === 'battery_discharging' || fueltech === 'battery' || fueltech === 'battery_energy') {
+      byCode[code].capacityMW += cap;
+    }
   }
 
   const batteries = Object.values(byCode);
   batteries.sort((a, b) => b.capacityMW - a.capacityMW);
-  console.log('[bess-nsw] Distinct NSW battery facilities:', batteries.map(b => `${b.code} (${b.capacityMW}MW)`).join(', ') || 'NONE');
+
+  console.log('[bess-nsw] Facilities found:',
+    batteries.map(b => `${b.code}(${b.capacityMW}MW, units:[${Object.entries(b.unitMap).map(([u,f])=>`${u}=${f}`).join(',')}])`).join(' | ')
+  );
+
   return batteries;
 }
 
 // ─── Fetch 5-min power + market_value for one facility ───────────────────────
 
-async function fetchBESSData(client, facilityCode, dateStart, dateEnd) {
+async function fetchBESSData(client, facilityCode, unitMap, dateStart, dateEnd) {
   try {
     const { datatable } = await client.getFacilityData(
       'NEM',
@@ -135,28 +150,73 @@ async function fetchBESSData(client, facilityCode, dateStart, dateEnd) {
       return [];
     }
 
+    // Log what unit_code field looks like in datatable rows (first call only)
+    const sampleRow = datatable.rows[0];
+    console.log(`[bess-nsw] ${facilityCode} datatable sample keys:`, Object.keys(sampleRow).join(', '));
+    console.log(`[bess-nsw] ${facilityCode} sample row:`, JSON.stringify({
+      unit_code: sampleRow.unit_code,
+      interval:  sampleRow.interval,
+      power:     sampleRow.power,
+      market_value: sampleRow.market_value,
+    }));
+
+    // Accumulate discharge and charge SEPARATELY per interval.
+    // OE already splits units: discharging units always positive, charging units always positive.
+    // We use unitMap (unit_code → fueltech) to route each row to the right bucket.
     const byInterval = {};
+
     for (const row of datatable.rows) {
       const ts = row.interval || row.date || row.timestamp;
       if (!ts) continue;
       const normTs = normaliseTs(ts);
-      const power  = typeof row.power        === 'number' ? row.power        : 0;
-      const mv     = typeof row.market_value === 'number' ? row.market_value : 0;
 
-      if (!byInterval[normTs]) byInterval[normTs] = { ts: normTs, power: 0, market_value: 0 };
-      byInterval[normTs].power        += power;
+      const power = typeof row.power        === 'number' ? row.power        : 0;
+      const mv    = typeof row.market_value === 'number' ? row.market_value : 0;
+
+      // Identify this unit's role
+      const unitCode = row.unit_code || '';
+      const fueltech = (unitMap[unitCode] || '').toLowerCase();
+
+      if (!byInterval[normTs]) {
+        byInterval[normTs] = { ts: normTs, dischargeMW: 0, chargeMW: 0, market_value: 0 };
+      }
+
+      if (fueltech === 'battery_discharging') {
+        // Discharging unit — power is already positive = MW sent to grid
+        byInterval[normTs].dischargeMW += power;
+      } else if (fueltech === 'battery_charging') {
+        // Charging unit — power is already positive = MW taken from grid
+        byInterval[normTs].chargeMW += power;
+      } else {
+        // Fallback: bidirectional or unlabelled unit — split by sign
+        // (positive = discharge, negative = charge)
+        if (power >= 0) {
+          byInterval[normTs].dischargeMW += power;
+        } else {
+          byInterval[normTs].chargeMW += Math.abs(power);
+        }
+      }
+
+      // Revenue: discharging earns (positive mv), charging costs (negative mv)
+      // Sum for net P&L
       byInterval[normTs].market_value += mv;
     }
 
-    return Object.values(byInterval)
+    const result = Object.values(byInterval)
       .map(v => ({
         ts:          v.ts,
-        dischargeMW: parseFloat(Math.max(0, v.power).toFixed(2)),
-        chargeMW:    parseFloat(Math.abs(Math.min(0, v.power)).toFixed(2)),
-        netMW:       parseFloat(v.power.toFixed(2)),
+        dischargeMW: parseFloat(v.dischargeMW.toFixed(2)),
+        chargeMW:    parseFloat(v.chargeMW.toFixed(2)),
+        netMW:       parseFloat((v.dischargeMW - v.chargeMW).toFixed(2)),
         revenueAUD:  parseFloat(v.market_value.toFixed(2)),
       }))
       .sort((a, b) => new Date(a.ts) - new Date(b.ts));
+
+    console.log(`[bess-nsw] ${facilityCode}: ${result.length} intervals, ` +
+      `peak discharge ${Math.max(...result.map(r=>r.dischargeMW)).toFixed(1)}MW, ` +
+      `peak charge ${Math.max(...result.map(r=>r.chargeMW)).toFixed(1)}MW`);
+
+    return result;
 
   } catch (err) {
     console.error('[bess-nsw] Data fetch error for', facilityCode + ':', err.message);
@@ -173,17 +233,19 @@ function summarise(data, capacityMW) {
     avgChargeMW: null, capacityFactorPct: null, intervals: 0,
   };
 
-  const H = 5 / 60;
+  const H = 5 / 60; // 5-min → hours
   const totalDischargeGWh = data.reduce((s, r) => s + r.dischargeMW * H, 0) / 1000;
   const totalChargeGWh    = data.reduce((s, r) => s + r.chargeMW    * H, 0) / 1000;
   const netRevenueAUD     = data.reduce((s, r) => s + r.revenueAUD, 0);
   const peakDischargeMW   = data.reduce((m, r) => Math.max(m, r.dischargeMW), 0);
   const peakChargeMW      = data.reduce((m, r) => Math.max(m, r.chargeMW),    0);
 
-  const dch = data.filter(r => r.dischargeMW > 0);
-  const chg = data.filter(r => r.chargeMW    > 0);
-  const avgDischargeMW = dch.length ? dch.reduce((s, r) => s + r.dischargeMW, 0) / dch.length : 0;
-  const avgChargeMW    = chg.length ? chg.reduce((s, r) => s + r.chargeMW,    0) / chg.length : 0;
+  const dchIntervals = data.filter(r => r.dischargeMW > 0.1);
+  const chgIntervals = data.filter(r => r.chargeMW    > 0.1);
+  const avgDischargeMW = dchIntervals.length
+    ? dchIntervals.reduce((s, r) => s + r.dischargeMW, 0) / dchIntervals.length : 0;
+  const avgChargeMW = chgIntervals.length
+    ? chgIntervals.reduce((s, r) => s + r.chargeMW,    0) / chgIntervals.length : 0;
 
   const capacityFactorPct = capacityMW > 0
     ? (totalDischargeGWh * 1000) / (capacityMW * 8 * 24) * 100
@@ -221,24 +283,28 @@ module.exports = async function handler(req, res) {
     if (!batteries.length) {
       return res.status(200).json({
         success: true,
-        message: 'No operating NSW battery facilities found after filtering',
-        batteries: [],
-        dateStart, dateEnd, fetchedAt: now.toISOString(),
+        message: 'No operating NSW battery facilities found',
+        batteries: [], dateStart, dateEnd, fetchedAt: now.toISOString(),
       });
     }
 
+    // Fetch power + market_value for each facility in parallel,
+    // passing the unitMap so fetchBESSData can route by fueltech
     const results = await Promise.allSettled(
-      batteries.map(b => fetchBESSData(client, b.code, dateStart, dateEnd))
+      batteries.map(b => fetchBESSData(client, b.code, b.unitMap, dateStart, dateEnd))
     );
 
     const batteryData = batteries.map((b, i) => {
       const data = results[i].status === 'fulfilled' ? results[i].value : [];
+      if (results[i].status === 'rejected') {
+        console.error(`[bess-nsw] ${b.code} fetch rejected:`, results[i].reason?.message);
+      }
       return {
         code:        b.code,
         name:        b.name,
         region:      b.region,
         capacityMW:  +b.capacityMW.toFixed(1),
-        capacityMWh: b.capacityMWh ? +b.capacityMWh.toFixed(0) : null,
+        unitMap:     b.unitMap,  // included for client-side debugging if needed
         stats:       summarise(data, b.capacityMW),
         data,
       };
