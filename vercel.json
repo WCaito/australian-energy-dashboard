@@ -23,6 +23,9 @@
     },
     "api/facility-data.js": {
       "maxDuration": 60
+    },
+    "api/bess-nsw.js": {
+      "maxDuration": 60
     }
   },
   "crons": [
