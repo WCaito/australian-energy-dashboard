@@ -45,25 +45,54 @@ function normaliseTs(ts) {
 // ─── Discover NSW BESS from OE ────────────────────────────────────────────────
 
 async function discoverNSWBatteries(client) {
-  console.log('[bess-nsw] Fetching NSW facility list');
+  console.log('[bess-nsw] Fetching NEM facility list (will filter to NSW battery)');
 
   let rows = [];
   try {
-    const result = await client.getFacilities({
+    // network_region is NOT a supported filter param — fetch all NEM facilities
+    // and filter client-side (same pattern as facility-data.js which works fine)
+    const { table } = await client.getFacilities({
       network_id: 'NEM',
-      network_region: 'NSW1',
-      status_id: ['operating', 'commissioning'],
+      status_id: ['operating'],
     });
-    // SDK may return a table or raw data
-    rows = result?.table?.getRecords
-      ? result.table.getRecords()
-      : result?.table?.rows ?? result?.rows ?? [];
+    rows = table?.getRecords ? table.getRecords() : (table?.rows ?? []);
   } catch (err) {
     console.error('[bess-nsw] getFacilities error:', err.message);
     throw new Error('Could not retrieve facility list: ' + err.message);
   }
 
-  console.log(`[bess-nsw] Got ${rows.length} NSW facilities`);
+  console.log(`[bess-nsw] Got ${rows.length} total NEM facilities, filtering to NSW battery…`);
+
+  // Filter to NSW1 battery fueltechs
+  rows = rows.filter(r => {
+    const region   = (r.network_region || r.region || '').toUpperCase();
+    const fueltech = (r.fueltech_id || r.fueltech || '').toLowerCase();
+    return region === 'NSW1' && BATTERY_FUELTECHS.has(fueltech);
+  });
+
+  // Log a sample of raw field names on the first row to help debug if filter produces nothing
+  // (we do this before the filter so we see the actual API response shape)
+  {
+    // Re-fetch for sampling via the original unfiltered rows isn't possible here,
+    // but we can log what we see from the already-filtered slice
+    if (rows.length === 0) {
+      console.warn('[bess-nsw] Filter produced 0 rows. Fetching 3 raw rows for field-name inspection...');
+      try {
+        const { table: t2 } = await client.getFacilities({ network_id: 'NEM', status_id: ['operating'] });
+        const sample = (t2?.getRecords ? t2.getRecords() : (t2?.rows ?? [])).slice(0, 3);
+        if (sample.length) {
+          console.log('[bess-nsw] Sample raw row keys:', Object.keys(sample[0]));
+          console.log('[bess-nsw] Sample rows (fueltech+region):', sample.map(r => ({
+            fueltech_id: r.fueltech_id, fueltech: r.fueltech,
+            network_region: r.network_region, region: r.region,
+            facility_code: r.facility_code, facility_name: r.facility_name,
+          })));
+        }
+      } catch(_) {}
+    }
+  }
+
+  console.log(`[bess-nsw] After filter: ${rows.length} NSW battery rows`);
 
   // Group by facility_code — the API often returns one row per unit
   const byCode = {};
@@ -99,6 +128,12 @@ async function discoverNSWBatteries(client) {
 
   const batteries = Object.values(byCode).filter(b => b.capacityMW > 0 || b.units.length > 0);
   console.log(`[bess-nsw] Found ${batteries.length} NSW battery facilities:`, batteries.map(b => b.code));
+
+  // If nothing was found, log some raw row examples to help diagnose field names
+  if (!batteries.length && rows.length === 0) {
+    console.warn('[bess-nsw] Zero rows after NSW+battery filter. The fueltech_id or region field names may differ from expected.');
+  }
+
   return batteries;
 }
 
