@@ -371,11 +371,8 @@
   // ── Render ────────────────────────────────────────────────────────────────────
 
   function fmtDate(isoStr) {
-    // isoStr is a naive AEST datetime from the API (no Z suffix) — treat as-is
-    // If it has a Z, shift to AEST first
-    const d = isoStr.endsWith('Z') ? toAEST(isoStr) : new Date(isoStr);
-    return d.toLocaleDateString('en-AU', {
-      day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC'
+    return new Date(isoStr).toLocaleDateString('en-AU', {
+      day: '2-digit', month: 'short', year: 'numeric', timeZone: NEM_TZ,
     });
   }
 
@@ -430,26 +427,23 @@
     return cardEl;
   }
 
-  // Always render timestamps in AEST (UTC+10), regardless of browser timezone
-  function toAEST(isoStr) {
-    const d = new Date(isoStr);
-    // Shift UTC → AEST by adding 10 hours, then read as UTC to get AEST wall time
-    return new Date(d.getTime() + 10 * 3600 * 1000);
-  }
+  // NEM timestamps are AEST (UTC+10). The API now appends +10:00 so the browser
+  // parses them correctly. We format using timeZone:'Australia/Brisbane' (UTC+10
+  // fixed, same as NEM AEST) — no manual shifting needed, works in any browser.
+  const NEM_TZ = 'Australia/Brisbane';
 
   function fmtAxisLabel(isoStr) {
-    const d = toAEST(isoStr);
-    const day  = d.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', timeZone: 'UTC' });
-    const time = d.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' });
+    const d = new Date(isoStr);
+    const day  = d.toLocaleDateString('en-AU',  { day: '2-digit', month: 'short', timeZone: NEM_TZ });
+    const time = d.toLocaleTimeString('en-AU',  { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: NEM_TZ });
     return `${day} ${time}`;
   }
 
   function fmtTooltipTime(isoStr) {
-    const d = toAEST(isoStr);
-    return d.toLocaleString('en-AU', {
+    return new Date(isoStr).toLocaleString('en-AU', {
       day: '2-digit', month: 'short',
       hour: '2-digit', minute: '2-digit', hour12: false,
-      timeZone: 'UTC'
+      timeZone: NEM_TZ,
     }) + ' AEST';
   }
 
