@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NSW Battery Storage — Australian Energy Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg:            #f7f5f0;
+      --surface:       #ffffff;
+      --surface-2:     #f2f0eb;
+      --border:        #e8e4dc;
+      --border-strong: #c8c3b8;
+      --text-1:        #0f0e0c;
+      --text-2:        #5c5751;
+      --text-3:        #9c9690;
+      --accent:        #1a1916;
+
+      /* BESS colours */
+      --discharge:       #10864a;
+      --discharge-fill:  rgba(16, 134, 74, 0.12);
+      --discharge-light: #d1fae5;
+      --charge:          #b45309;
+      --charge-fill:     rgba(180, 83, 9, 0.12);
+      --charge-light:    #fef3c7;
+      --revenue:         #6d28d9;
+      --revenue-neg:     #dc2626;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'IBM Plex Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text-1);
+      min-height: 100vh;
+    }
+
+    /* ── Layout ─────────────────────────────────────────────────────── */
+    .container {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 0 24px 80px;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────────── */
+    header {
+      padding: 40px 0 32px;
+      border-bottom: 1.5px solid var(--border);
+      margin-bottom: 40px;
+    }
+
+    .header-content {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    h1 {
+      font-family: 'IBM Plex Serif', Georgia, serif;
+      font-size: 2.2rem;
+      font-weight: 600;
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+      color: var(--text-1);
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      font-size: 0.875rem;
+      color: var(--text-2);
+      font-weight: 400;
+    }
+
+    .date-range {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--text-2);
+      margin-top: 6px;
+    }
+
+    .nav-links { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+
+    .nav-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 9px 18px;
+      background: var(--text-1);
+      color: #fff;
+      text-decoration: none;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      transition: background 0.15s;
+    }
+    .nav-link:hover { background: var(--discharge); }
+    .nav-link.secondary {
+      background: transparent;
+      color: var(--text-1);
+      border: 1.5px solid var(--border);
+    }
+    .nav-link.secondary:hover {
+      background: var(--discharge-light);
+      border-color: var(--discharge);
+    }
+
+    /* ── Legend ─────────────────────────────────────────────────────── */
+    .legend {
+      display: none;
+      flex-wrap: wrap;
+      gap: 20px;
+      margin-bottom: 36px;
+      padding: 14px 20px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      font-size: 0.78rem;
+      color: var(--text-2);
+    }
+
+    .legend-item { display: flex; align-items: center; gap: 8px; }
+
+    .legend-swatch {
+      width: 24px;
+      height: 10px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+
+    /* ── Fleet summary bar ──────────────────────────────────────────── */
+    .fleet-summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 0;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      margin-bottom: 40px;
+    }
+
+    .fleet-stat {
+      padding: 20px 24px;
+      border-right: 1px solid var(--border);
+    }
+    .fleet-stat:last-child { border-right: none; }
+    .fleet-stat-label {
+      font-size: 0.6875rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text-3);
+      margin-bottom: 6px;
+    }
+    .fleet-stat-value {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 1.1rem;
+      font-weight: 500;
+      color: var(--text-1);
+    }
+    .fleet-stat-value.green { color: var(--discharge); }
+    .fleet-stat-value.amber { color: var(--charge); }
+    .fleet-stat-value.purple { color: var(--revenue); }
+
+    /* ── BESS card grid ─────────────────────────────────────────────── */
+    .bess-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 28px;
+    }
+
+    /* ── Single BESS card ───────────────────────────────────────────── */
+    .bess-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .card-title {
+      font-family: 'IBM Plex Serif', serif;
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: var(--text-1);
+      line-height: 1.3;
+    }
+
+    .card-meta {
+      font-size: 0.73rem;
+      color: var(--text-2);
+      margin-top: 4px;
+      font-family: 'IBM Plex Mono', monospace;
+    }
+
+    .bess-badge {
+      font-size: 0.65rem;
+      font-weight: 600;
+      padding: 3px 10px;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      flex-shrink: 0;
+      background: var(--discharge-light);
+      color: var(--discharge);
+      border: 1px solid rgba(16,134,74,0.2);
+    }
+
+    /* ── Stats row ──────────────────────────────────────────────────── */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      border-bottom: 1px solid var(--border);
+    }
+
+    @media (max-width: 900px) {
+      .stats-row { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (max-width: 520px) {
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    .stat {
+      padding: 14px 18px;
+      border-right: 1px solid var(--border);
+    }
+    .stat:last-child { border-right: none; }
+
+    .stat-label {
+      font-size: 0.6875rem;
+      color: var(--text-3);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 4px;
+    }
+
+    .stat-value {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.9375rem;
+      font-weight: 500;
+      color: var(--text-1);
+    }
+
+    .stat-value.green  { color: var(--discharge); }
+    .stat-value.amber  { color: var(--charge); }
+    .stat-value.purple { color: var(--revenue); }
+    .stat-value.red    { color: var(--revenue-neg); }
+    .stat-value.muted  { color: var(--text-3); }
+
+    /* ── Chart wrapper ──────────────────────────────────────────────── */
+    .chart-wrapper {
+      padding: 20px 20px 16px;
+      height: 300px;
+      position: relative;
+    }
+
+    /* ── No-data placeholder ────────────────────────────────────────── */
+    .no-data {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 220px;
+      color: var(--text-3);
+      font-size: 0.875rem;
+      font-style: italic;
+    }
+
+    /* ── Loading / Error screens ────────────────────────────────────── */
+    .loading-screen, .error-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 80px 24px;
+      text-align: center;
+      gap: 16px;
+    }
+
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid var(--border);
+      border-top-color: var(--discharge);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loading-msg {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.875rem;
+      color: var(--text-2);
+    }
+
+    .loading-sub {
+      font-size: 0.8rem;
+      color: var(--text-3);
+    }
+
+    .error-screen h3 {
+      font-family: 'IBM Plex Serif', serif;
+      font-size: 1.2rem;
+      color: var(--revenue-neg);
+    }
+
+    .error-screen p {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.8rem;
+      color: var(--text-2);
+      max-width: 520px;
+    }
+
+    .retry-btn {
+      margin-top: 8px;
+      padding: 9px 22px;
+      background: var(--text-1);
+      color: #fff;
+      border: none;
+      font-size: 0.875rem;
+      font-family: 'IBM Plex Sans', sans-serif;
+      cursor: pointer;
+    }
+    .retry-btn:hover { background: var(--discharge); }
+
+    /* ── Footer ─────────────────────────────────────────────────────── */
+    .page-footer {
+      margin-top: 56px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      font-size: 0.73rem;
+      color: var(--text-3);
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .page-footer a { color: var(--text-2); text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+
+  <header>
+    <div class="header-content">
+      <div>
+        <h1>NSW Battery Storage</h1>
+        <div class="subtitle">5-minute charge, discharge &amp; revenue · All operating BESS in NSW1 · Last 8 days</div>
+        <div class="date-range" id="dateRange">Loading…</div>
+      </div>
+      <div class="nav-links">
+        <a href="australian-energy-market.html" class="nav-link secondary">← Live Dashboard</a>
+        <a href="historical-data.html" class="nav-link secondary">Historical</a>
+        <a href="facility-data.html" class="nav-link secondary">Generators</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Legend -->
+  <div class="legend" id="legend">
+    <div class="legend-item">
+      <div class="legend-swatch" style="background:var(--discharge)"></div>
+      <span>Discharge (MW export) — left axis</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-swatch" style="background:var(--charge)"></div>
+      <span>Charge (MW import) — left axis, shown negative</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-swatch" style="background:var(--revenue); opacity:0.7"></div>
+      <span>Cumulative revenue ($AUD) — right axis</span>
+    </div>
+  </div>
+
+  <!-- Fleet summary (injected after load) -->
+  <div id="fleetSummary" style="display:none" class="fleet-summary">
+    <div class="fleet-stat">
+      <div class="fleet-stat-label">Facilities</div>
+      <div class="fleet-stat-value" id="fs-count">—</div>
+    </div>
+    <div class="fleet-stat">
+      <div class="fleet-stat-label">Total Installed MW</div>
+      <div class="fleet-stat-value" id="fs-mw">—</div>
+    </div>
+    <div class="fleet-stat">
+      <div class="fleet-stat-label">Total Discharge</div>
+      <div class="fleet-stat-value green" id="fs-discharge">—</div>
+    </div>
+    <div class="fleet-stat">
+      <div class="fleet-stat-label">Total Charge</div>
+      <div class="fleet-stat-value amber" id="fs-charge">—</div>
+    </div>
+    <div class="fleet-stat">
+      <div class="fleet-stat-label">Net Revenue (8d)</div>
+      <div class="fleet-stat-value purple" id="fs-revenue">—</div>
+    </div>
+  </div>
+
+  <!-- Main content -->
+  <div id="main">
+    <div class="loading-screen">
+      <div class="spinner"></div>
+      <div class="loading-msg">Discovering NSW battery facilities…</div>
+      <div class="loading-sub">Fetching 5-minute interval data · This takes 20–40 seconds</div>
+    </div>
+  </div>
+
+  <footer class="page-footer">
+    <span>Data: <a href="https://openelectricity.org.au" target="_blank" rel="noopener">OpenElectricity</a> · NEM · NSW1 region</span>
+    <span id="fetchedAt"></span>
+  </footer>
+
+</div>
+
+<script>
+  'use strict';
+
+  // ── Timezone ──────────────────────────────────────────────────────────────────
+  // API appends +10:00 to all timestamps. Format in AEST (Brisbane = UTC+10, no DST).
+  const NEM_TZ = 'Australia/Brisbane';
+
+  function fmtAxisLabel(isoStr) {
+    const d = new Date(isoStr);
+    const day  = d.toLocaleDateString('en-AU',  { day: '2-digit', month: 'short', timeZone: NEM_TZ });
+    const time = d.toLocaleTimeString('en-AU',  { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: NEM_TZ });
+    return `${day} ${time}`;
+  }
+
+  function fmtTooltipTime(isoStr) {
+    return new Date(isoStr).toLocaleString('en-AU', {
+      day: '2-digit', month: 'short',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+      timeZone: NEM_TZ,
+    }) + ' AEST';
+  }
+
+  function fmtDate(isoStr) {
+    return new Date(isoStr).toLocaleDateString('en-AU', {
+      day: '2-digit', month: 'short', year: 'numeric', timeZone: NEM_TZ,
+    });
+  }
+
+  // ── Number formatting ─────────────────────────────────────────────────────────
+
+  function fmtMW(v, dp = 1) {
+    if (v === null || v === undefined) return '—';
+    return `${parseFloat(v).toFixed(dp)} MW`;
+  }
+
+  function fmtGWh(v, dp = 2) {
+    if (v === null || v === undefined) return '—';
+    return `${parseFloat(v).toFixed(dp)} GWh`;
+  }
+
+  function fmtRevenue(v) {
+    if (v === null || v === undefined) return '—';
+    const abs = Math.abs(v);
+    const sign = v < 0 ? '−$' : '$';
+    if (abs >= 1_000_000) return `${sign}${(abs / 1_000_000).toFixed(2)}M`;
+    if (abs >= 1_000)     return `${sign}${(abs / 1_000).toFixed(1)}k`;
+    return `${sign}${abs.toFixed(0)}`;
+  }
+
+  function fmtPct(v) {
+    if (v === null || v === undefined) return '—';
+    return `${parseFloat(v).toFixed(1)}%`;
+  }
+
+  // ── Fetch ─────────────────────────────────────────────────────────────────────
+
+  async function loadData() {
+    const resp = await fetch('/api/bess-nsw');
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      throw new Error(body.error || `HTTP ${resp.status}`);
+    }
+    return resp.json();
+  }
+
+  // ── Down-sample helper ────────────────────────────────────────────────────────
+
+  function downsample(rows, max = 900) {
+    if (rows.length <= max) return rows;
+    const step = Math.ceil(rows.length / max);
+    return rows.filter((_, i) => i % step === 0);
+  }
+
+  // ── Fleet summary bar ─────────────────────────────────────────────────────────
+
+  function updateFleetSummary(batteries) {
+    const active = batteries.filter(b => b.stats.intervals > 0);
+
+    const totalMW      = batteries.reduce((s, b) => s + (b.capacityMW || 0), 0);
+    const totalDchGWh  = active.reduce((s, b) => s + (b.stats.totalDischargeGWh || 0), 0);
+    const totalChgGWh  = active.reduce((s, b) => s + (b.stats.totalChargeGWh || 0), 0);
+    const totalRevenue = active.reduce((s, b) => s + (b.stats.netRevenueAUD || 0), 0);
+
+    document.getElementById('fs-count').textContent    = batteries.length;
+    document.getElementById('fs-mw').textContent        = `${totalMW.toFixed(0)} MW`;
+    document.getElementById('fs-discharge').textContent = fmtGWh(totalDchGWh);
+    document.getElementById('fs-charge').textContent    = fmtGWh(totalChgGWh);
+
+    const revEl = document.getElementById('fs-revenue');
+    revEl.textContent = fmtRevenue(totalRevenue);
+    revEl.className = `fleet-stat-value ${totalRevenue >= 0 ? 'purple' : 'red'}`;
+
+    document.getElementById('fleetSummary').style.display = 'grid';
+  }
+
+  // ── Render card HTML ──────────────────────────────────────────────────────────
+
+  function renderCard(b) {
+    const s = b.stats;
+    const hasData = s.intervals > 0;
+
+    const revClass = !hasData || s.netRevenueAUD === null ? 'muted'
+      : s.netRevenueAUD >= 0 ? 'purple' : 'red';
+
+    const capacityLine = [
+      b.capacityMW ? `${b.capacityMW} MW` : null,
+      b.capacityMWh ? `${b.capacityMWh} MWh` : null,
+    ].filter(Boolean).join(' / ');
+
+    const el = document.createElement('div');
+    el.className = 'bess-card';
+    el.id = `card-${b.code}`;
+    el.innerHTML = `
+      <div class="card-header">
+        <div>
+          <div class="card-title">${b.name}</div>
+          <div class="card-meta">${b.code} · ${b.region}${capacityLine ? ' · ' + capacityLine : ''}</div>
+        </div>
+        <span class="bess-badge">BESS</span>
+      </div>
+      <div class="stats-row">
+        <div class="stat">
+          <div class="stat-label">Total Discharge</div>
+          <div class="stat-value green">${hasData ? fmtGWh(s.totalDischargeGWh) : '—'}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Total Charge</div>
+          <div class="stat-value amber">${hasData ? fmtGWh(s.totalChargeGWh) : '—'}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Net Revenue</div>
+          <div class="stat-value ${revClass}">${hasData ? fmtRevenue(s.netRevenueAUD) : '—'}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Peak Discharge</div>
+          <div class="stat-value">${hasData ? fmtMW(s.peakDischargeMW) : '—'}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Peak Charge</div>
+          <div class="stat-value">${hasData ? fmtMW(s.peakChargeMW) : '—'}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Capacity Factor</div>
+          <div class="stat-value ${!hasData || s.capacityFactorPct === null ? 'muted' : ''}">${hasData ? fmtPct(s.capacityFactorPct) : '—'}</div>
+        </div>
+      </div>
+      <div class="chart-wrapper">
+        <canvas id="chart-${b.code}"></canvas>
+      </div>
+    `;
+
+    return el;
+  }
+
+  // ── Build Chart.js chart ──────────────────────────────────────────────────────
+
+  const charts = {};
+
+  function buildChart(b) {
+    const canvas = document.getElementById(`chart-${b.code}`);
+    if (!canvas) return;
+
+    if (!b.data || !b.data.length) {
+      canvas.closest('.chart-wrapper').innerHTML =
+        '<div class="no-data">No 5-minute data available for this period</div>';
+      return;
+    }
+
+    const rows = downsample(b.data, 900);
+
+    // Pre-format axis labels (AEST, category axis — no date adapter needed)
+    const labels = rows.map(r => fmtAxisLabel(r.ts));
+
+    // Discharge: positive MW
+    const dischargeData = rows.map(r => r.dischargeMW ?? null);
+    // Charge: shown as NEGATIVE MW on the same axis (so chart reads as bidirectional)
+    const chargeData    = rows.map(r => r.chargeMW > 0 ? -r.chargeMW : null);
+
+    // Cumulative revenue ($AUD running total)
+    let cumRev = 0;
+    const revenueData = rows.map(r => {
+      cumRev += (r.revenueAUD ?? 0);
+      return parseFloat(cumRev.toFixed(0));
+    });
+
+    if (charts[b.code]) charts[b.code].destroy();
+
+    const revColor = cumRev >= 0 ? '#6d28d9' : '#dc2626';
+
+    charts[b.code] = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Discharge (MW)',
+            data: dischargeData,
+            borderColor: '#10864a',
+            backgroundColor: 'rgba(16,134,74,0.10)',
+            borderWidth: 1.2,
+            pointRadius: 0,
+            fill: { target: 'origin', above: 'rgba(16,134,74,0.10)' },
+            tension: 0.15,
+            yAxisID: 'y',
+            spanGaps: true,
+          },
+          {
+            label: 'Charge (MW)',
+            data: chargeData,
+            borderColor: '#b45309',
+            backgroundColor: 'rgba(180,83,9,0.10)',
+            borderWidth: 1.2,
+            pointRadius: 0,
+            fill: { target: 'origin', below: 'rgba(180,83,9,0.10)' },
+            tension: 0.15,
+            yAxisID: 'y',
+            spanGaps: true,
+          },
+          {
+            label: 'Cumulative Revenue ($)',
+            data: revenueData,
+            borderColor: revColor,
+            backgroundColor: 'transparent',
+            borderWidth: 1.5,
+            borderDash: [4, 3],
+            pointRadius: 0,
+            fill: false,
+            tension: 0.2,
+            yAxisID: 'y1',
+            spanGaps: true,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#0f0e0c',
+            titleFont: { family: "'IBM Plex Mono', monospace", size: 10 },
+            bodyFont:  { family: "'IBM Plex Mono', monospace", size: 11 },
+            padding: 10,
+            callbacks: {
+              title: (items) => {
+                const idx = items[0]?.dataIndex;
+                return idx !== undefined ? fmtTooltipTime(b.data[Math.round(idx * b.data.length / rows.length)] ?.ts ?? rows[idx]?.ts ?? '') : '';
+              },
+              label: (ctx) => {
+                const v = ctx.parsed.y;
+                if (ctx.datasetIndex === 0) return ` Discharge: ${v !== null ? v.toFixed(1) + ' MW' : '—'}`;
+                if (ctx.datasetIndex === 1) return ` Charge:    ${v !== null ? Math.abs(v).toFixed(1) + ' MW' : '—'}`;
+                if (ctx.datasetIndex === 2) return ` Cum. Rev:  ${fmtRevenue(v)}`;
+                return ctx.formattedValue;
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            type: 'category',
+            grid: { color: '#e8e4dc', lineWidth: 0.6 },
+            ticks: {
+              color: '#9c9690',
+              font: { family: "'IBM Plex Mono', monospace", size: 9 },
+              maxTicksLimit: 9,
+              maxRotation: 0,
+              callback(val, idx) {
+                const step = Math.max(1, Math.floor(this.chart.data.labels.length / 9));
+                return idx % step === 0 ? this.getLabelForValue(val) : '';
+              },
+            },
+          },
+          y: {
+            position: 'left',
+            grid: { color: '#e8e4dc', lineWidth: 0.6 },
+            ticks: {
+              color: '#5c5751',
+              font: { family: "'IBM Plex Mono', monospace", size: 9 },
+              callback: v => v + ' MW',
+            },
+            title: {
+              display: true,
+              text: 'Power (MW)  ▲ discharge  ▼ charge',
+              color: '#5c5751',
+              font: { family: "'IBM Plex Sans', sans-serif", size: 8.5, weight: '500' },
+            },
+          },
+          y1: {
+            position: 'right',
+            grid: { drawOnChartArea: false },
+            ticks: {
+              color: revColor,
+              font: { family: "'IBM Plex Mono', monospace", size: 9 },
+              callback: v => {
+                if (Math.abs(v) >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
+                if (Math.abs(v) >= 1_000)     return `$${(v / 1_000).toFixed(0)}k`;
+                return `$${v}`;
+              },
+            },
+            title: {
+              display: true,
+              text: 'Cumulative Revenue ($AUD)',
+              color: revColor,
+              font: { family: "'IBM Plex Sans', sans-serif", size: 8.5, weight: '500' },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  // ── Orchestrate ───────────────────────────────────────────────────────────────
+
+  async function init() {
+    const mainEl = document.getElementById('main');
+
+    try {
+      const data = await loadData();
+
+      // Update header
+      document.getElementById('dateRange').textContent =
+        `${fmtDate(data.dateStart)} → ${fmtDate(data.dateEnd)} AEST`;
+      document.getElementById('fetchedAt').textContent =
+        `Fetched ${new Date(data.fetchedAt).toLocaleString('en-AU', { timeZone: NEM_TZ })} AEST`;
+      document.getElementById('legend').style.display = 'flex';
+
+      if (!data.batteries || !data.batteries.length) {
+        mainEl.innerHTML = `
+          <div class="error-screen">
+            <h3>No NSW battery facilities found</h3>
+            <p>The API returned no operating BESS in NSW1. This may be a temporary issue.</p>
+            <button class="retry-btn" onclick="location.reload()">↺ Retry</button>
+          </div>`;
+        return;
+      }
+
+      // Fleet summary
+      updateFleetSummary(data.batteries);
+
+      // Build cards
+      const grid = document.createElement('div');
+      grid.className = 'bess-grid';
+
+      for (const b of data.batteries) {
+        grid.appendChild(renderCard(b));
+      }
+
+      mainEl.innerHTML = '';
+      mainEl.appendChild(grid);
+
+      // Build charts after DOM is ready
+      requestAnimationFrame(() => {
+        for (const b of data.batteries) {
+          buildChart(b);
+        }
+      });
+
+    } catch (err) {
+      console.error('[bess-nsw] Error:', err);
+      mainEl.innerHTML = `
+        <div class="error-screen">
+          <h3>⚠ Unable to Load Battery Data</h3>
+          <p>${err.message}</p>
+          <p style="margin-top:10px;color:#7f1d1d;font-size:0.78rem;">
+            Ensure <code>OPENELECTRICITY_API_KEY</code> is set and <code>openelectricity</code> package is installed.
+          </p>
+          <button class="retry-btn" onclick="location.reload()">↺ Retry</button>
+        </div>`;
+    }
+  }
+
+  init();
+</script>
+
+</body>
+</html>
