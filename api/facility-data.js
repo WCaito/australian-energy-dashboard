@@ -19,14 +19,18 @@
  *   Windy Hill Wind Farm        QLD  wind
  */
 
-// Target facilities to find — searched against facility_name from the API
+// Target facilities to find — searched against facility_name from the API.
+// For multi-stage facilities, include "stage N" in searchName so each entry
+// matches a distinct facility rather than both matching the first result.
 const TARGET_FACILITIES = [
-  { searchName: 'townsville',   displayName: 'Townsville Power Station', region: 'QLD1', type: 'gas',   hintCode: 'YABULU'    },
-  { searchName: 'collector',    displayName: 'Collector Wind Farm',       region: 'NSW1', type: 'wind',  hintCode: 'COLLECTOR' },
-  { searchName: 'emerald',displayName: 'Mount Emerald Wind Farm',   region: 'QLD1', type: 'wind',  hintCode: 'MTEMERALD' },
-  { searchName: 'collinsville', displayName: 'Collinsville Solar Farm',   region: 'QLD1', type: 'solar', hintCode: 'COLLINSVILLE' },
-  { searchName: 'starfish',     displayName: 'Starfish Hill Wind Farm',   region: 'SA1',  type: 'wind',  hintCode: 'STARFISH'  },
-  { searchName: 'windy hill',   displayName: 'Windy Hill Wind Farm',      region: 'QLD1', type: 'wind',  hintCode: 'WINDYHILL' },
+  { searchName: 'townsville',       displayName: 'Townsville Power Station',      region: 'QLD1', type: 'gas',   hintCode: 'YABULU'       },
+  { searchName: 'collector',        displayName: 'Collector Wind Farm',            region: 'NSW1', type: 'wind',  hintCode: 'COLLECTOR'    },
+  { searchName: 'emerald',          displayName: 'Mount Emerald Wind Farm',        region: 'QLD1', type: 'wind',  hintCode: 'MTEMERALD'    },
+  { searchName: 'collinsville',     displayName: 'Collinsville Solar Farm',        region: 'QLD1', type: 'solar', hintCode: 'COLLINSVILLE' },
+  { searchName: 'starfish',         displayName: 'Starfish Hill Wind Farm',        region: 'SA1',  type: 'wind',  hintCode: 'STARFHILL'    },
+  { searchName: 'windy hill',       displayName: 'Windy Hill Wind Farm',           region: 'QLD1', type: 'wind',  hintCode: 'WINDHILL'     },
+  { searchName: 'lincoln gap stage 1', displayName: 'Lincoln Gap Wind Farm Stage 1', region: 'SA1',  type: 'wind',  hintCode: 'LGAPWF1'   },
+  { searchName: 'lincoln gap stage 2', displayName: 'Lincoln Gap Wind Farm Stage 2', region: 'SA1',  type: 'wind',  hintCode: 'LGAPWF2'   },
 ];
 
 // ─── OpenElectricity client ────────────────────────────────────────────────────
