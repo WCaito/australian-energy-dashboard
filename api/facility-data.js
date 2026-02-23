@@ -19,24 +19,29 @@
  *   Windy Hill Wind Farm        QLD  wind
  */
 
-// Target facilities to find — matched against facility_name from the API.
+// Target facilities — searchTerms: ALL must appear in facility_name (case-insensitive).
+//                  excludeTerms: ANY match disqualifies the row.
 //
-// searchTerms: array of strings that must ALL appear in the facility_name
-//   (case-insensitive). Using an array lets us disambiguate facilities whose
-//   names share a common prefix but differ later — e.g. "Lincoln Gap Wind Farm
-//   Stage 1" vs Stage 2. A single substring like "lincoln gap stage 1" would
-//   FAIL because "wind farm" sits between "lincoln gap" and "stage 1" in the
-//   real name, making it non-contiguous. Two separate terms ['lincoln gap',
-//   'stage 1'] each individually match, giving us the right facility.
+// ORDERING: put more specific entries BEFORE broader ones for the same name prefix.
+//   Stage 2 is listed before Stage 1 so it claims its code first. Stage 1 then
+//   matches whatever Lincoln Gap facility remains (may have no stage suffix at all).
+//
+// MOUNT EMERALD: excludeTerms:['solar'] prevents matching "Mount Emerald Solar Farm"
+//   which also contains "emerald" and appears in the facility list.
 const TARGET_FACILITIES = [
-  { searchTerms: ['townsville'],          displayName: 'Townsville Power Station',         region: 'QLD1', type: 'gas',   hintCode: 'YABULU'       },
-  { searchTerms: ['collector'],           displayName: 'Collector Wind Farm',               region: 'NSW1', type: 'wind',  hintCode: 'COLLECTOR'    },
-  { searchTerms: ['emerald'],             displayName: 'Mount Emerald Wind Farm',           region: 'QLD1', type: 'wind',  hintCode: 'MTEMERALD'    },
-  { searchTerms: ['collinsville'],        displayName: 'Collinsville Solar Farm',           region: 'QLD1', type: 'solar', hintCode: 'COLLINSVILLE' },
-  { searchTerms: ['starfish'],            displayName: 'Starfish Hill Wind Farm',           region: 'SA1',  type: 'wind',  hintCode: 'STARFHILL'    },
-  { searchTerms: ['windy hill'],          displayName: 'Windy Hill Wind Farm',              region: 'QLD1', type: 'wind',  hintCode: 'WINDHILL'     },
-  { searchTerms: ['lincoln gap', 'stage 1'], displayName: 'Lincoln Gap Wind Farm Stage 1', region: 'SA1',  type: 'wind',  hintCode: 'LGAPWF1'     },
-  { searchTerms: ['lincoln gap', 'stage 2'], displayName: 'Lincoln Gap Wind Farm Stage 2', region: 'SA1',  type: 'wind',  hintCode: 'LGAPWF2'     },
+  { searchTerms: ['townsville'],              displayName: 'Townsville Power Station',         region: 'QLD1', type: 'gas',   hintCode: 'YABULU'    },
+  { searchTerms: ['collector'],               displayName: 'Collector Wind Farm',              region: 'NSW1', type: 'wind',  hintCode: 'COLLECTOR' },
+  { searchTerms: ['emerald'], excludeTerms: ['solar'],
+                                              displayName: 'Mount Emerald Wind Farm',          region: 'QLD1', type: 'wind',  hintCode: 'MTEMERALD' },
+  { searchTerms: ['collinsville'],            displayName: 'Collinsville Solar Farm',          region: 'QLD1', type: 'solar', hintCode: 'CSPVPS'    },
+  { searchTerms: ['starfish'],                displayName: 'Starfish Hill Wind Farm',          region: 'SA1',  type: 'wind',  hintCode: 'STARFHILL' },
+  { searchTerms: ['windy hill'],              displayName: 'Windy Hill Wind Farm',             region: 'QLD1', type: 'wind',  hintCode: 'WINDHILL'  },
+  // Stage 2 first — name always contains "stage 2", unambiguous
+  { searchTerms: ['lincoln gap', 'stage 2'], displayName: 'Lincoln Gap Wind Farm Stage 2',    region: 'SA1',  type: 'wind',  hintCode: 'LGAPWF2'   },
+  // Stage 1 second — facility may simply be "Lincoln Gap Wind Farm" with no stage suffix.
+  // After Stage 2 is claimed above, this matches whatever Lincoln Gap facility remains.
+  { searchTerms: ['lincoln gap'], excludeTerms: ['stage 2'],
+                                              displayName: 'Lincoln Gap Wind Farm Stage 1',    region: 'SA1',  type: 'wind',  hintCode: 'LGAPWF1'   },
 ];
 
 // ─── OpenElectricity client ────────────────────────────────────────────────────
@@ -127,10 +132,15 @@ async function discoverFacilities(client) {
     // Using multiple terms lets us match non-contiguous words, e.g. "lincoln gap"
     // AND "stage 1" both appear in "Lincoln Gap Wind Farm Stage 1" but the single
     // string "lincoln gap stage 1" does NOT (because "wind farm" is in between).
+    const excludes = target.excludeTerms || [];
     const match = uniqueFacilities.find(f => {
       const name = (f.facility_name || f.name || '').toLowerCase();
       const code = f.facility_code || f.code;
-      return !claimedCodes.has(code) && terms.every(t => name.includes(t));
+      // Must not be already claimed, all searchTerms must be present,
+      // and none of the excludeTerms may be present
+      return !claimedCodes.has(code)
+          && terms.every(t => name.includes(t))
+          && excludes.every(x => !name.includes(x));
     });
 
     if (match) {
@@ -140,7 +150,8 @@ async function discoverFacilities(client) {
       console.log(`[facility-data] MATCHED "${target.displayName}" → ${code} (${capacity} MW) terms:[${terms.join(', ')}]`);
       resolved.push({ ...target, facilityCode: code, capacity, found: true, rawRecord: match });
     } else {
-      console.warn(`[facility-data] NOT FOUND: "${target.displayName}" — falling back to hint code ${target.hintCode} — terms tried: [${terms.join(', ')}]`);
+      const excStr = excludes.length ? ` exclude:[${excludes.join(', ')}]` : '';
+      console.warn(`[facility-data] NOT FOUND: "${target.displayName}" — falling back to hint code ${target.hintCode} — terms:[${terms.join(', ')}]${excStr}`);
       resolved.push({ ...target, facilityCode: target.hintCode, found: false });
     }
   }
