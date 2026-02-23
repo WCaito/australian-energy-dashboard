@@ -6,7 +6,7 @@
  *
  *   YABULU    Townsville Power Station     QLD1  gas
  *   COLWF01   Collector Wind Farm          NSW1  wind
- *   MEWF1     Mount Emerald Wind Farm      QLD1  wind
+ *   MEWF      Mount Emerald Wind Farm      QLD1  wind  (MEWF1 is the unit DUID, MEWF is the facility code)
  *   CSPVPS    Collinsville Solar Farm      QLD1  solar
  *   STARFHILL Starfish Hill Wind Farm      SA1   wind
  *   WINDHILL  Windy Hill Wind Farm         QLD1  wind
@@ -20,7 +20,7 @@
 const FACILITIES = [
   { code: 'YABULU',    region: 'QLD1', type: 'gas',   fallbackName: 'Townsville Power Station'  },
   { code: 'COLWF01',   region: 'NSW1', type: 'wind',  fallbackName: 'Collector Wind Farm'        },
-  { code: 'MEWF1',     region: 'QLD1', type: 'wind',  fallbackName: 'Mount Emerald Wind Farm'    },
+  { code: 'MEWF',     region: 'QLD1', type: 'wind',  fallbackName: 'Mount Emerald Wind Farm'    },
   { code: 'CSPVPS',    region: 'QLD1', type: 'solar', fallbackName: 'Collinsville Solar Farm'    },
   { code: 'STARFHILL', region: 'SA1',  type: 'wind',  fallbackName: 'Starfish Hill Wind Farm'    },
   { code: 'WINDHILL',  region: 'QLD1', type: 'wind',  fallbackName: 'Windy Hill Wind Farm'       },
