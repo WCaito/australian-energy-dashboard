@@ -19,18 +19,24 @@
  *   Windy Hill Wind Farm        QLD  wind
  */
 
-// Target facilities to find — searched against facility_name from the API.
-// For multi-stage facilities, include "stage N" in searchName so each entry
-// matches a distinct facility rather than both matching the first result.
+// Target facilities to find — matched against facility_name from the API.
+//
+// searchTerms: array of strings that must ALL appear in the facility_name
+//   (case-insensitive). Using an array lets us disambiguate facilities whose
+//   names share a common prefix but differ later — e.g. "Lincoln Gap Wind Farm
+//   Stage 1" vs Stage 2. A single substring like "lincoln gap stage 1" would
+//   FAIL because "wind farm" sits between "lincoln gap" and "stage 1" in the
+//   real name, making it non-contiguous. Two separate terms ['lincoln gap',
+//   'stage 1'] each individually match, giving us the right facility.
 const TARGET_FACILITIES = [
-  { searchName: 'townsville',       displayName: 'Townsville Power Station',      region: 'QLD1', type: 'gas',   hintCode: 'YABULU'       },
-  { searchName: 'collector',        displayName: 'Collector Wind Farm',            region: 'NSW1', type: 'wind',  hintCode: 'COLLECTOR'    },
-  { searchName: 'emerald',          displayName: 'Mount Emerald Wind Farm',        region: 'QLD1', type: 'wind',  hintCode: 'MTEMERALD'    },
-  { searchName: 'collinsville',     displayName: 'Collinsville Solar Farm',        region: 'QLD1', type: 'solar', hintCode: 'COLLINSVILLE' },
-  { searchName: 'starfish',         displayName: 'Starfish Hill Wind Farm',        region: 'SA1',  type: 'wind',  hintCode: 'STARFHILL'    },
-  { searchName: 'windy hill',       displayName: 'Windy Hill Wind Farm',           region: 'QLD1', type: 'wind',  hintCode: 'WINDHILL'     },
-  { searchName: 'lincoln gap stage 1', displayName: 'Lincoln Gap Wind Farm Stage 1', region: 'SA1',  type: 'wind',  hintCode: 'LGAPWF1'   },
-  { searchName: 'lincoln gap stage 2', displayName: 'Lincoln Gap Wind Farm Stage 2', region: 'SA1',  type: 'wind',  hintCode: 'LGAPWF2'   },
+  { searchTerms: ['townsville'],          displayName: 'Townsville Power Station',         region: 'QLD1', type: 'gas',   hintCode: 'YABULU'       },
+  { searchTerms: ['collector'],           displayName: 'Collector Wind Farm',               region: 'NSW1', type: 'wind',  hintCode: 'COLLECTOR'    },
+  { searchTerms: ['emerald'],             displayName: 'Mount Emerald Wind Farm',           region: 'QLD1', type: 'wind',  hintCode: 'MTEMERALD'    },
+  { searchTerms: ['collinsville'],        displayName: 'Collinsville Solar Farm',           region: 'QLD1', type: 'solar', hintCode: 'COLLINSVILLE' },
+  { searchTerms: ['starfish'],            displayName: 'Starfish Hill Wind Farm',           region: 'SA1',  type: 'wind',  hintCode: 'STARFHILL'    },
+  { searchTerms: ['windy hill'],          displayName: 'Windy Hill Wind Farm',              region: 'QLD1', type: 'wind',  hintCode: 'WINDHILL'     },
+  { searchTerms: ['lincoln gap', 'stage 1'], displayName: 'Lincoln Gap Wind Farm Stage 1', region: 'SA1',  type: 'wind',  hintCode: 'LGAPWF1'     },
+  { searchTerms: ['lincoln gap', 'stage 2'], displayName: 'Lincoln Gap Wind Farm Stage 2', region: 'SA1',  type: 'wind',  hintCode: 'LGAPWF2'     },
 ];
 
 // ─── OpenElectricity client ────────────────────────────────────────────────────
@@ -81,28 +87,60 @@ async function discoverFacilities(client) {
     return TARGET_FACILITIES.map(t => ({ ...t, facilityCode: t.hintCode, found: false }));
   }
 
-  console.log(`[facility-data] Got ${allFacilities.length} facilities from API`);
+  console.log(`[facility-data] Got ${allFacilities.length} facility rows from API`);
+
+  // De-duplicate rows to one per facility_code (API returns one row per unit).
+  // Keep the row with the largest unit_capacity for a meaningful capacity figure.
+  const byFacilityCode = {};
+  for (const row of allFacilities) {
+    const code = row.facility_code || row.code;
+    if (!code) continue;
+    const cap = parseFloat(row.unit_capacity || 0) || 0;
+    if (!byFacilityCode[code] || cap > (parseFloat(byFacilityCode[code].unit_capacity) || 0)) {
+      byFacilityCode[code] = row;
+    }
+  }
+  const uniqueFacilities = Object.values(byFacilityCode);
+  console.log(`[facility-data] ${uniqueFacilities.length} distinct facility codes`);
+
+  // Log Lincoln Gap entries explicitly so we can see real names & codes
+  const lgRows = uniqueFacilities.filter(f =>
+    (f.facility_name || '').toLowerCase().includes('lincoln')
+  );
+  if (lgRows.length) {
+    console.log('[facility-data] Lincoln Gap entries:',
+      lgRows.map(r => `${r.facility_code} — "${r.facility_name}" (${r.unit_capacity} MW)`).join(' | ')
+    );
+  } else {
+    console.log('[facility-data] WARNING: No Lincoln Gap entries found in facility list');
+  }
+
+  // Track claimed codes so two targets can never match the same facility_code.
+  // This prevents Stage 1 and Stage 2 searches from both resolving to the same record.
+  const claimedCodes = new Set();
 
   const resolved = [];
   for (const target of TARGET_FACILITIES) {
-    const match = allFacilities.find(f => {
+    const terms = target.searchTerms;
+
+    // Every term in searchTerms must appear in the facility_name (case-insensitive).
+    // Using multiple terms lets us match non-contiguous words, e.g. "lincoln gap"
+    // AND "stage 1" both appear in "Lincoln Gap Wind Farm Stage 1" but the single
+    // string "lincoln gap stage 1" does NOT (because "wind farm" is in between).
+    const match = uniqueFacilities.find(f => {
       const name = (f.facility_name || f.name || '').toLowerCase();
-      return name.includes(target.searchName);
+      const code = f.facility_code || f.code;
+      return !claimedCodes.has(code) && terms.every(t => name.includes(t));
     });
 
     if (match) {
       const code = match.facility_code || match.code || target.hintCode;
-      const capacity = match.unit_capacity || match.capacity || null;
-      console.log(`[facility-data] Found "${target.displayName}" → ${code} (capacity: ${capacity} MW)`);
-      resolved.push({
-        ...target,
-        facilityCode: code,
-        capacity,
-        found: true,
-        rawRecord: match,
-      });
+      const capacity = parseFloat(match.unit_capacity || match.capacity) || null;
+      claimedCodes.add(code);
+      console.log(`[facility-data] MATCHED "${target.displayName}" → ${code} (${capacity} MW) terms:[${terms.join(', ')}]`);
+      resolved.push({ ...target, facilityCode: code, capacity, found: true, rawRecord: match });
     } else {
-      console.warn(`[facility-data] NOT FOUND: "${target.displayName}" (using hint code ${target.hintCode})`);
+      console.warn(`[facility-data] NOT FOUND: "${target.displayName}" — falling back to hint code ${target.hintCode} — terms tried: [${terms.join(', ')}]`);
       resolved.push({ ...target, facilityCode: target.hintCode, found: false });
     }
   }
