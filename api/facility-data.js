@@ -36,12 +36,7 @@ const TARGET_FACILITIES = [
   { searchTerms: ['collinsville'],            displayName: 'Collinsville Solar Farm',          region: 'QLD1', type: 'solar', hintCode: 'CSPVPS'    },
   { searchTerms: ['starfish'],                displayName: 'Starfish Hill Wind Farm',          region: 'SA1',  type: 'wind',  hintCode: 'STARFHILL' },
   { searchTerms: ['windy hill'],              displayName: 'Windy Hill Wind Farm',             region: 'QLD1', type: 'wind',  hintCode: 'WINDHILL'  },
-  // Stage 2 first — name always contains "stage 2", unambiguous
-  { searchTerms: ['lincoln gap', 'stage 2'], displayName: 'Lincoln Gap Wind Farm Stage 2',    region: 'SA1',  type: 'wind',  hintCode: 'LGAPWF2'   },
-  // Stage 1 second — facility may simply be "Lincoln Gap Wind Farm" with no stage suffix.
-  // After Stage 2 is claimed above, this matches whatever Lincoln Gap facility remains.
-  { searchTerms: ['lincoln gap'], excludeTerms: ['stage 2'],
-                                              displayName: 'Lincoln Gap Wind Farm Stage 1',    region: 'SA1',  type: 'wind',  hintCode: 'LGAPWF1'   },
+  { searchTerms: ['lincoln gap'],             displayName: 'Lincoln Gap Wind Farm',            region: 'SA1',  type: 'wind',  hintCode: 'LGAPWF1'   },
 ];
 
 // ─── OpenElectricity client ────────────────────────────────────────────────────
