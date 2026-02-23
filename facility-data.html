@@ -178,11 +178,8 @@
     /* ── Facility grid ── */
     .facility-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr;
       gap: 32px;
-    }
-    @media (max-width: 900px) {
-      .facility-grid { grid-template-columns: 1fr; }
     }
 
     /* ── Facility card ── */
@@ -249,7 +246,7 @@
     /* ── Chart wrapper ── */
     .chart-wrapper {
       padding: 20px;
-      height: 260px;
+      height: 400px;
       position: relative;
     }
 
@@ -295,7 +292,7 @@
     <div class="header-content">
       <div>
         <h1>Generator Performance</h1>
-        <div class="subtitle">5-minute interval power output &amp; regional spot price · Last 8 days</div>
+        <div class="subtitle">5-minute interval power output &amp; regional spot price · 8 generators · Last 8 days</div>
         <div class="date-range" id="dateRange">Fetching data…</div>
       </div>
       <div class="nav-links">
@@ -543,11 +540,11 @@
             ticks: {
               color: '#9c9690',
               font: { family: "'IBM Plex Mono', monospace", size: 9 },
-              maxTicksLimit: 8,
+              maxTicksLimit: 10,
               maxRotation: 0,
               // Show only every Nth tick label to avoid crowding
               callback: function(val, idx) {
-                const step = Math.max(1, Math.floor(this.chart.data.labels.length / 8));
+                const step = Math.max(1, Math.floor(this.chart.data.labels.length / 10));
                 return idx % step === 0 ? this.getLabelForValue(val) : '';
               },
             },
