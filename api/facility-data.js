@@ -167,12 +167,19 @@ function mergePowerPrice(powerRows, prices, region) {
 
 function summarise(merged, capacity) {
   const powers = merged.map(r => r.power).filter(p => p !== null && !isNaN(p));
-  const prices = merged.map(r => r.price).filter(p => p !== null && !isNaN(p));
 
   const avgPower = powers.length ? powers.reduce((a, b) => a + b, 0) / powers.length : null;
   const maxPower = powers.length ? Math.max(...powers) : null;
-  const avgPrice = prices.length ? prices.reduce((a, b) => a + b, 0) / prices.length : null;
   const cf       = capacity && avgPower != null ? (avgPower / capacity) * 100 : null;
+
+  // Generation-weighted average price: sum(power * price) / sum(power)
+  // Only intervals where power > 0 AND price is non-null are included.
+  // This gives the actual revenue-per-MWh achieved, which is more meaningful
+  // for variable generators than a simple time-average of spot prices.
+  const validPairs       = merged.filter(r => r.power > 0 && r.price !== null && !isNaN(r.price));
+  const totalWeighted    = validPairs.reduce((s, r) => s + r.power * r.price, 0);
+  const totalWeight      = validPairs.reduce((s, r) => s + r.power, 0);
+  const avgPrice         = totalWeight > 0 ? totalWeighted / totalWeight : null;
 
   return {
     avgPowerMW:        avgPower != null ? +avgPower.toFixed(2) : null,
