@@ -4,475 +4,477 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Australian Energy Market Live</title>
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --text-primary: #1a1a1a;
-            --text-secondary: #666666;
-            --text-tertiary: #999999;
-            --border: #e5e5e5;
-            --background: #ffffff;
-            --accent: #2563eb;
-            --accent-light: #eff6ff;
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'IBM Plex Sans', -apple-system, sans-serif;
-            background: var(--background);
-            color: var(--text-primary);
-            line-height: 1.6;
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 60px 24px;
-        }
-
-        header {
-            margin-bottom: 48px;
-            border-bottom: 1px solid var(--border);
-            padding-bottom: 32px;
-        }
-
-        .header-content {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            gap: 24px;
-            flex-wrap: wrap;
-        }
-
-        .header-text {
-            flex: 1;
-        }
-
-        .nav-link {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 10px 20px;
-            background: var(--text-primary);
-            color: var(--background);
-            text-decoration: none;
-            font-size: 0.875rem;
-            font-weight: 500;
-            transition: all 0.2s ease;
-            margin-top: 8px;
-        }
-
-        .nav-link:hover {
-            background: var(--accent);
-        }
-
-        h1 {
-            font-family: 'IBM Plex Serif', Georgia, serif;
-            font-size: 2.5rem;
-            font-weight: 600;
-            line-height: 1.2;
-            margin-bottom: 12px;
-            color: var(--text-primary);
-            letter-spacing: -0.02em;
-        }
-
-        .subtitle {
-            font-size: 0.95rem;
-            color: var(--text-secondary);
-            font-weight: 400;
-        }
-
-        .live-indicator {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            margin-top: 16px;
-            font-size: 0.875rem;
-            color: var(--text-secondary);
-        }
-
-        .live-dot {
-            width: 6px;
-            height: 6px;
-            background: var(--accent);
-            border-radius: 50%;
-            animation: pulse 2s ease-in-out infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.4; }
-        }
-
-        .section-title {
-            font-family: 'IBM Plex Serif', Georgia, serif;
-            font-size: 1.5rem;
-            font-weight: 600;
-            margin-bottom: 24px;
-            color: var(--text-primary);
-            letter-spacing: -0.01em;
-        }
-
-        .dashboard {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: 16px;
-            margin-bottom: 64px;
-            padding-bottom: 48px;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .card {
-            background: var(--background);
-            border: 1px solid var(--border);
-            padding: 20px;
-            transition: all 0.2s ease;
-        }
-
-        .card:hover {
-            border-color: var(--accent);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-        }
-
-        .card-header {
-            margin-bottom: 8px;
-        }
-
-        .region-tag {
-            font-size: 0.75rem;
-            font-weight: 600;
-            color: var(--text-secondary);
-            letter-spacing: 0.05em;
-        }
-
-        .price {
-            font-family: 'IBM Plex Serif', Georgia, serif;
-            font-size: 1.75rem;
-            font-weight: 600;
-            line-height: 1.2;
-            margin: 8px 0;
-            color: var(--text-primary);
-        }
-
-        .price-unit {
-            font-size: 0.75rem;
-            color: var(--text-tertiary);
-            font-weight: 400;
-        }
-
-        .change {
-            display: inline-block;
-            font-size: 0.75rem;
-            color: var(--text-secondary);
-            margin-top: 4px;
-        }
-
-        .change.positive {
-            color: #059669;
-        }
-
-        .change.negative {
-            color: #dc2626;
-        }
-
-        .news-section {
-            margin-bottom: 64px;
-        }
-
-        .news-list {
-            display: flex;
-            flex-direction: column;
-            gap: 0;
-        }
-
-        .news-item {
-            padding: 24px 0;
-            border-bottom: 1px solid var(--border);
-            transition: all 0.2s ease;
-            cursor: pointer;
-        }
-
-        .news-item:hover {
-            background: var(--accent-light);
-            margin: 0 -16px;
-            padding-left: 16px;
-            padding-right: 16px;
-        }
-
-        .news-item:first-child {
-            padding-top: 0;
-        }
-
-        .news-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: baseline;
-            gap: 16px;
-            margin-bottom: 8px;
-        }
-
-        .news-source {
-            font-size: 0.8125rem;
-            color: var(--text-tertiary);
-            font-weight: 500;
-        }
-
-        .news-time {
-            font-size: 0.8125rem;
-            color: var(--text-tertiary);
-            white-space: nowrap;
-        }
-
-        .news-categories {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 12px;
-            flex-wrap: wrap;
-        }
-
-        .category-tag {
-            font-size: 0.6875rem;
-            padding: 4px 10px;
-            border: 1px solid var(--border);
-            background: var(--background);
-            color: var(--text-secondary);
-            font-weight: 500;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            transition: all 0.2s ease;
-        }
-
-        .category-tag.government {
-            border-color: #dc2626;
-            color: #dc2626;
-            background: #fef2f2;
-        }
-
-        .category-tag.renewables {
-            border-color: #059669;
-            color: #059669;
-            background: #f0fdf4;
-        }
-
-        .category-tag.pricing {
-            border-color: #ea580c;
-            color: #ea580c;
-            background: #fff7ed;
-        }
-
-        .category-tag.infrastructure {
-            border-color: #2563eb;
-            color: #2563eb;
-            background: #eff6ff;
-        }
-
-        .category-tag.markets {
-            border-color: #7c3aed;
-            color: #7c3aed;
-            background: #faf5ff;
-        }
-
-        .category-tag.technology {
-            border-color: #0891b2;
-            color: #0891b2;
-            background: #ecfeff;
-        }
-
-        .category-tag.policy {
-            border-color: #c026d3;
-            color: #c026d3;
-            background: #fdf4ff;
-        }
-
-        .category-tag.customers {
-            border-color: #ca8a04;
-            color: #ca8a04;
-            background: #fefce8;
-        }
-
-        .news-title {
-            font-family: 'IBM Plex Serif', Georgia, serif;
-            font-size: 1.25rem;
-            font-weight: 500;
-            margin-bottom: 8px;
-            color: var(--text-primary);
-            line-height: 1.4;
-            letter-spacing: -0.01em;
-        }
-
-        .news-excerpt {
-            font-size: 0.9375rem;
-            color: var(--text-secondary);
-            line-height: 1.6;
-            margin-bottom: 8px;
-        }
-
-        .news-link {
-            font-size: 0.8125rem;
-            color: var(--accent);
-            text-decoration: none;
-            font-weight: 500;
-        }
-
-        .news-link:hover {
-            text-decoration: underline;
-        }
-
-        .loading {
-            text-align: center;
-            padding: 48px 24px;
-            color: var(--text-secondary);
-            font-size: 0.9375rem;
-        }
-
-        .spinner {
-            border: 2px solid var(--border);
-            border-top: 2px solid var(--accent);
-            border-radius: 50%;
-            width: 32px;
-            height: 32px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 16px;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        footer {
-            margin-top: 80px;
-            padding: 32px 0;
-            text-align: center;
-            border-top: 1px solid var(--border);
-            color: var(--text-tertiary);
-            font-size: 0.8125rem;
-        }
-
-        .refresh-panel {
-            position: fixed;
-            bottom: 32px;
-            right: 32px;
-            display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-            gap: 8px;
-            z-index: 100;
-        }
-
-        .cache-status-badge {
-            background: rgba(255,255,255,0.95);
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            padding: 6px 12px;
-            font-size: 0.75rem;
-            color: var(--text-secondary);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-            display: none;
-        }
-
-        .cache-status-badge.visible { display: block; }
-        .cache-status-badge.stale   { color: #b45309; border-color: #fcd34d; }
-        .cache-status-badge.fresh   { color: #065f46; border-color: #6ee7b7; }
-        .cache-status-badge.missing { color: #991b1b; border-color: #fca5a5; }
-
-        .refresh-btn {
-            padding: 12px 20px;
-            background: var(--text-primary);
-            color: var(--background);
-            border: none;
-            font-family: 'IBM Plex Sans', sans-serif;
-            font-weight: 500;
-            font-size: 0.875rem;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-        }
-
-        .refresh-btn:hover { background: var(--accent); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
-        .refresh-btn:active { transform: translateY(1px); }
-        .refresh-btn:disabled { background: #9ca3af; cursor: not-allowed; transform: none; }
-
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .refresh-btn .spinner-inline {
-            display: inline-block;
-            width: 12px; height: 12px;
-            border: 2px solid rgba(255,255,255,0.4);
-            border-top-color: #fff;
-            border-radius: 50%;
-            animation: spin 0.7s linear infinite;
-            margin-right: 6px;
-            vertical-align: middle;
-        }
-
-        @media (max-width: 768px) {
-            .container {
-                padding: 40px 16px;
-            }
-
-            .header-content {
-                flex-direction: column;
-            }
-
-            .nav-link {
-                align-self: flex-start;
-            }
-
-            h1 {
-                font-size: 2rem;
-            }
-
-            .dashboard {
-                grid-template-columns: repeat(2, 1fr);
-            }
-
-            .price {
-                font-size: 1.5rem;
-            }
-
-            .news-header {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 4px;
-            }
-
-            .news-title {
-                font-size: 1.125rem;
-            }
-
-            .refresh-btn {
-                bottom: 16px;
-                right: 16px;
-                padding: 10px 16px;
-                font-size: 0.8125rem;
-            }
-        }
-    </style>
+  /* ── Reset ────────────────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* ── Tokens ────────────────────────────────────────────────────────────── */
+  :root {
+    --bg:           #ffffff;
+    --bg-subtle:    #f9fafb;
+    --border:       #e5e7eb;
+    --text-1:       #111827;
+    --text-2:       #6b7280;
+    --text-3:       #9ca3af;
+    --accent:       #2563eb;
+    --accent-bg:    #eff6ff;
+    --positive:     #059669;
+    --negative:     #dc2626;
+  }
+
+  /* ── Base ──────────────────────────────────────────────────────────────── */
+  body {
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text-1);
+    min-height: 100vh;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Layout ────────────────────────────────────────────────────────────── */
+  .container {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 28px 96px;
+  }
+
+  /* ── Header ────────────────────────────────────────────────────────────── */
+  header {
+    padding: 44px 0 32px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 48px;
+  }
+  .header-inner {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 32px;
+    flex-wrap: wrap;
+  }
+  h1 {
+    font-family: 'IBM Plex Serif', Georgia, serif;
+    font-size: 2.125rem;
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    color: var(--text-1);
+    margin-bottom: 8px;
+  }
+  .subtitle {
+    font-size: 0.9375rem;
+    color: var(--text-2);
+    font-weight: 400;
+    max-width: 520px;
+    line-height: 1.5;
+  }
+  .date-range {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.6875rem;
+    color: var(--text-3);
+    margin-top: 8px;
+    letter-spacing: 0.01em;
+  }
+
+  /* ── Navigation ────────────────────────────────────────────────────────── */
+  .header-nav {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    padding-top: 6px;
+  }
+  .nav-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 7px 15px;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    text-decoration: none;
+    border: 1px solid var(--border);
+    color: var(--text-2);
+    background: var(--bg);
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+    white-space: nowrap;
+    font-family: 'IBM Plex Sans', sans-serif;
+  }
+  .nav-link:hover {
+    border-color: var(--text-1);
+    color: var(--text-1);
+  }
+  .nav-link.active {
+    background: var(--text-1);
+    border-color: var(--text-1);
+    color: #ffffff;
+  }
+  .nav-link.active:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  /* ── Section title ─────────────────────────────────────────────────────── */
+  .section-title {
+    font-family: 'IBM Plex Serif', Georgia, serif;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-1);
+    letter-spacing: -0.01em;
+    margin-bottom: 20px;
+  }
+
+  /* ── Stat grid (shared across pages) ──────────────────────────────────── */
+  .stat-label {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-3);
+    margin-bottom: 5px;
+    font-weight: 500;
+  }
+  .stat-value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: var(--text-1);
+  }
+  .stat-value.muted  { color: var(--text-3); font-style: italic; }
+  .stat-value.green  { color: var(--positive); }
+  .stat-value.red    { color: var(--negative); }
+
+  /* ── Badges ────────────────────────────────────────────────────────────── */
+  .badge {
+    display: inline-block;
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+
+  /* ── Spinner ───────────────────────────────────────────────────────────── */
+  .spinner {
+    width: 32px;
+    height: 32px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Loading screen ────────────────────────────────────────────────────── */
+  .loading-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 96px 24px;
+    text-align: center;
+    gap: 16px;
+    color: var(--text-2);
+  }
+  .loading-msg {
+    font-size: 0.9rem;
+    color: var(--text-2);
+  }
+  .loading-sub {
+    font-size: 0.8125rem;
+    color: var(--text-3);
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  /* ── Page footer ───────────────────────────────────────────────────────── */
+  .page-footer {
+    margin-top: 64px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    font-size: 0.75rem;
+    color: var(--text-3);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .page-footer a {
+    color: var(--text-2);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  /* ── Cache status bar ──────────────────────────────────────────────────── */
+  #globalCacheBar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: rgba(255,255,255,0.97);
+    backdrop-filter: blur(8px);
+    border-top: 1px solid var(--border);
+    padding: 10px 28px;
+    display: flex; align-items: center; gap: 12px;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 0.75rem; color: var(--text-2);
+    z-index: 999;
+  }
+  #globalCacheBar .gcb-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--text-3); flex-shrink: 0;
+    transition: background 0.3s;
+  }
+  #globalCacheBar .gcb-dot.fresh  { background: var(--positive); }
+  #globalCacheBar .gcb-dot.stale  { background: #f59e0b; }
+  #globalCacheBar .gcb-dot.miss   { background: var(--negative); }
+  #globalCacheBar .gcb-text { flex: 1; }
+  #globalCacheBar .gcb-btn {
+    padding: 5px 14px;
+    background: var(--text-1); color: #fff;
+    border: none; cursor: pointer;
+    font-size: 0.75rem; font-family: inherit; font-weight: 500;
+    flex-shrink: 0; transition: background 0.15s;
+  }
+  #globalCacheBar .gcb-btn:hover { background: var(--accent); }
+  #globalCacheBar .gcb-btn:disabled { background: var(--text-3); cursor: not-allowed; }
+  @keyframes gcb-spin { to { transform: rotate(360deg); } }
+  .gcb-spinner {
+    display: inline-block; width: 10px; height: 10px;
+    border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff;
+    border-radius: 50%; animation: gcb-spin 0.7s linear infinite;
+    margin-right: 5px; vertical-align: middle;
+  }
+  body { padding-bottom: 44px; }
+
+  /* ── Responsive ────────────────────────────────────────────────────────── */
+  @media (max-width: 768px) {
+    .container { padding: 0 16px 96px; }
+    h1 { font-size: 1.75rem; }
+    .header-inner { flex-direction: column; gap: 20px; }
+  }
+
+  /* ── Live indicator ────────────────────────────────────────────────────── */
+  .live-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    font-size: 0.8125rem;
+    color: var(--text-3);
+  }
+  .live-dot {
+    width: 6px; height: 6px;
+    background: var(--positive);
+    border-radius: 50%;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* ── Price cards ───────────────────────────────────────────────────────── */
+  .dashboard {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    margin-bottom: 64px;
+  }
+  .card {
+    background: var(--bg);
+    padding: 24px 20px;
+    transition: background 0.15s;
+  }
+  .card:hover { background: var(--bg-subtle); }
+  .region-tag {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--text-3);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .price {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 1.75rem;
+    font-weight: 500;
+    line-height: 1.1;
+    color: var(--text-1);
+  }
+  .price.negative { color: var(--negative); }
+  .price-unit {
+    font-size: 0.75rem;
+    color: var(--text-3);
+    font-weight: 400;
+    margin-left: 2px;
+  }
+  .change {
+    display: inline-block;
+    font-size: 0.75rem;
+    margin-top: 8px;
+    color: var(--text-3);
+  }
+  .change.positive { color: var(--positive); }
+  .change.negative { color: var(--negative); }
+
+  /* ── News ──────────────────────────────────────────────────────────────── */
+  .news-list {
+    display: flex;
+    flex-direction: column;
+  }
+  .news-item {
+    padding: 24px 0;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .news-item:first-child { padding-top: 0; }
+  .news-item:hover {
+    background: var(--bg-subtle);
+    margin: 0 -16px;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .news-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 8px;
+  }
+  .news-source {
+    font-size: 0.75rem;
+    color: var(--text-3);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .news-time {
+    font-size: 0.75rem;
+    color: var(--text-3);
+    white-space: nowrap;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .news-categories {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .category-tag {
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border: 1px solid var(--border);
+    color: var(--text-3);
+    background: var(--bg-subtle);
+  }
+  .news-title {
+    font-family: 'IBM Plex Serif', Georgia, serif;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-1);
+    margin-bottom: 6px;
+    line-height: 1.4;
+  }
+  .news-excerpt {
+    font-size: 0.875rem;
+    color: var(--text-2);
+    line-height: 1.55;
+  }
+
+  /* ── Refresh panel ─────────────────────────────────────────────────────── */
+  .refresh-panel {
+    position: fixed;
+    bottom: 52px;
+    right: 28px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    z-index: 100;
+  }
+  .cache-status-badge {
+    background: rgba(255,255,255,0.97);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--border);
+    padding: 5px 12px;
+    font-size: 0.75rem;
+    color: var(--text-2);
+    display: none;
+    font-family: 'IBM Plex Sans', sans-serif;
+  }
+  .cache-status-badge.visible { display: block; }
+  .cache-status-badge.stale   { color: #b45309; border-color: #fcd34d; }
+  .cache-status-badge.fresh   { color: #065f46; border-color: #6ee7b7; }
+  .cache-status-badge.missing { color: #991b1b; border-color: #fca5a5; }
+  .refresh-btn {
+    padding: 8px 18px;
+    background: var(--text-1);
+    color: #ffffff;
+    border: none;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 500;
+    font-size: 0.8125rem;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .refresh-btn:hover { background: var(--accent); }
+  .refresh-btn:disabled { background: var(--text-3); cursor: not-allowed; }
+  @keyframes spin-inline { to { transform: rotate(360deg); } }
+  .spinner-inline {
+    display: inline-block; width: 11px; height: 11px;
+    border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff;
+    border-radius: 50%; animation: spin-inline 0.7s linear infinite;
+    margin-right: 6px; vertical-align: middle;
+  }
+
+  /* ── Loading inline ────────────────────────────────────────────────────── */
+  .loading {
+    padding: 48px 24px;
+    text-align: center;
+    color: var(--text-3);
+    font-size: 0.875rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+  }
+
+  /* ── Footer ────────────────────────────────────────────────────────────── */
+  footer {
+    margin-top: 64px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    font-size: 0.75rem;
+    color: var(--text-3);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  </style>
 </head>
 <body>
     <div class="container">
-        <header>
-            <div class="header-content">
-                <div class="header-text">
-                    <h1>Australian Energy Market</h1>
-                    <div class="subtitle">National Electricity Market</div>
-                    <div class="live-indicator">
-                        <span class="live-dot"></span>
-                        <span>Live data</span>
-                    </div>
-                </div>
-                <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;">
-                  <a href="historical-data.html" class="nav-link">Historical Data →</a>
-                  <a href="facility-data.html" class="nav-link" style="background:#2563eb;">Generator View →</a>
-        <a href="bess-nsw.html" class="nav-link" style="background:#10864a">Battery Storage →</a>
-                </div>
-            </div>
-        </header>
+          <header>
+    <div class="header-inner">
+      <div>
+        <h1>Australian Energy Market</h1>
+        <p class="subtitle">Real-time NEM spot prices and energy news across all five regions</p>
+        <div class="live-indicator">
+          <div class="live-dot"></div>
+          Live · Updates every 5 minutes · AEMO public data
+        </div>
+      </div>
+      <nav class="header-nav">
+        <a href="australian-energy-market.html" class="nav-link active">Live Prices</a>
+        <a href="historical-data.html" class="nav-link">Historical</a>
+        <a href="facility-data.html" class="nav-link">Generators</a>
+        <a href="bess-nsw.html" class="nav-link">NSW Batteries</a>
+      </nav>
+    </div>
+  </header>
 
         <section>
             <h2 class="section-title">Spot Prices by State</h2>
