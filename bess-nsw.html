@@ -4,363 +4,451 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NSW Battery Storage — Australian Energy Dashboard</title>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
   <style>
-    :root {
-      --bg:            #f7f5f0;
-      --surface:       #ffffff;
-      --surface-2:     #f2f0eb;
-      --border:        #e8e4dc;
-      --border-strong: #c8c3b8;
-      --text-1:        #0f0e0c;
-      --text-2:        #5c5751;
-      --text-3:        #9c9690;
-      --accent:        #1a1916;
+  /* ── Reset ────────────────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-      /* BESS colours */
-      --discharge:       #10864a;
-      --discharge-fill:  rgba(16, 134, 74, 0.12);
-      --discharge-light: #d1fae5;
-      --charge:          #b45309;
-      --charge-fill:     rgba(180, 83, 9, 0.12);
-      --charge-light:    #fef3c7;
-      --revenue:         #6d28d9;
-      --revenue-neg:     #dc2626;
-    }
+  /* ── Tokens ────────────────────────────────────────────────────────────── */
+  :root {
+    --bg:           #ffffff;
+    --bg-subtle:    #f9fafb;
+    --border:       #e5e7eb;
+    --text-1:       #111827;
+    --text-2:       #6b7280;
+    --text-3:       #9ca3af;
+    --accent:       #2563eb;
+    --accent-bg:    #eff6ff;
+    --positive:     #059669;
+    --negative:     #dc2626;
+  }
 
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  /* ── Base ──────────────────────────────────────────────────────────────── */
+  body {
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text-1);
+    min-height: 100vh;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
 
-    body {
-      font-family: 'IBM Plex Sans', sans-serif;
-      background: var(--bg);
-      color: var(--text-1);
-      min-height: 100vh;
-    }
+  /* ── Layout ────────────────────────────────────────────────────────────── */
+  .container {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 28px 96px;
+  }
 
-    /* ── Layout ─────────────────────────────────────────────────────── */
-    .container {
-      max-width: 1320px;
-      margin: 0 auto;
-      padding: 0 24px 80px;
-    }
+  /* ── Header ────────────────────────────────────────────────────────────── */
+  header {
+    padding: 44px 0 32px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 48px;
+  }
+  .header-inner {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 32px;
+    flex-wrap: wrap;
+  }
+  h1 {
+    font-family: 'IBM Plex Serif', Georgia, serif;
+    font-size: 2.125rem;
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    color: var(--text-1);
+    margin-bottom: 8px;
+  }
+  .subtitle {
+    font-size: 0.9375rem;
+    color: var(--text-2);
+    font-weight: 400;
+    max-width: 520px;
+    line-height: 1.5;
+  }
+  .date-range {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.6875rem;
+    color: var(--text-3);
+    margin-top: 8px;
+    letter-spacing: 0.01em;
+  }
 
-    /* ── Header ─────────────────────────────────────────────────────── */
-    header {
-      padding: 40px 0 32px;
-      border-bottom: 1.5px solid var(--border);
-      margin-bottom: 40px;
-    }
+  /* ── Navigation ────────────────────────────────────────────────────────── */
+  .header-nav {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    padding-top: 6px;
+  }
+  .nav-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 7px 15px;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    text-decoration: none;
+    border: 1px solid var(--border);
+    color: var(--text-2);
+    background: var(--bg);
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+    white-space: nowrap;
+    font-family: 'IBM Plex Sans', sans-serif;
+  }
+  .nav-link:hover {
+    border-color: var(--text-1);
+    color: var(--text-1);
+  }
+  .nav-link.active {
+    background: var(--text-1);
+    border-color: var(--text-1);
+    color: #ffffff;
+  }
+  .nav-link.active:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
 
-    .header-content {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 16px;
-    }
+  /* ── Section title ─────────────────────────────────────────────────────── */
+  .section-title {
+    font-family: 'IBM Plex Serif', Georgia, serif;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-1);
+    letter-spacing: -0.01em;
+    margin-bottom: 20px;
+  }
 
-    h1 {
-      font-family: 'IBM Plex Serif', Georgia, serif;
-      font-size: 2.2rem;
-      font-weight: 600;
-      line-height: 1.2;
-      letter-spacing: -0.02em;
-      color: var(--text-1);
-      margin-bottom: 8px;
-    }
+  /* ── Stat grid (shared across pages) ──────────────────────────────────── */
+  .stat-label {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-3);
+    margin-bottom: 5px;
+    font-weight: 500;
+  }
+  .stat-value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: var(--text-1);
+  }
+  .stat-value.muted  { color: var(--text-3); font-style: italic; }
+  .stat-value.green  { color: var(--positive); }
+  .stat-value.red    { color: var(--negative); }
 
-    .subtitle {
-      font-size: 0.875rem;
-      color: var(--text-2);
-      font-weight: 400;
-    }
+  /* ── Badges ────────────────────────────────────────────────────────────── */
+  .badge {
+    display: inline-block;
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
 
-    .date-range {
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 0.75rem;
-      color: var(--text-2);
-      margin-top: 6px;
-    }
+  /* ── Spinner ───────────────────────────────────────────────────────────── */
+  .spinner {
+    width: 32px;
+    height: 32px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
-    .nav-links { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+  /* ── Loading screen ────────────────────────────────────────────────────── */
+  .loading-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 96px 24px;
+    text-align: center;
+    gap: 16px;
+    color: var(--text-2);
+  }
+  .loading-msg {
+    font-size: 0.9rem;
+    color: var(--text-2);
+  }
+  .loading-sub {
+    font-size: 0.8125rem;
+    color: var(--text-3);
+    font-family: 'IBM Plex Mono', monospace;
+  }
 
-    .nav-link {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 9px 18px;
-      background: var(--text-1);
-      color: #fff;
-      text-decoration: none;
-      font-size: 0.8125rem;
-      font-weight: 500;
-      transition: background 0.15s;
-    }
-    .nav-link:hover { background: var(--discharge); }
-    .nav-link.secondary {
-      background: transparent;
-      color: var(--text-1);
-      border: 1.5px solid var(--border);
-    }
-    .nav-link.secondary:hover {
-      background: var(--discharge-light);
-      border-color: var(--discharge);
-    }
+  /* ── Page footer ───────────────────────────────────────────────────────── */
+  .page-footer {
+    margin-top: 64px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    font-size: 0.75rem;
+    color: var(--text-3);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .page-footer a {
+    color: var(--text-2);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
 
-    /* ── Legend ─────────────────────────────────────────────────────── */
-    .legend {
-      display: none;
-      flex-wrap: wrap;
-      gap: 20px;
-      margin-bottom: 36px;
-      padding: 14px 20px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      font-size: 0.78rem;
-      color: var(--text-2);
-    }
+  /* ── Cache status bar ──────────────────────────────────────────────────── */
+  #globalCacheBar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: rgba(255,255,255,0.97);
+    backdrop-filter: blur(8px);
+    border-top: 1px solid var(--border);
+    padding: 10px 28px;
+    display: flex; align-items: center; gap: 12px;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 0.75rem; color: var(--text-2);
+    z-index: 999;
+  }
+  #globalCacheBar .gcb-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--text-3); flex-shrink: 0;
+    transition: background 0.3s;
+  }
+  #globalCacheBar .gcb-dot.fresh  { background: var(--positive); }
+  #globalCacheBar .gcb-dot.stale  { background: #f59e0b; }
+  #globalCacheBar .gcb-dot.miss   { background: var(--negative); }
+  #globalCacheBar .gcb-text { flex: 1; }
+  #globalCacheBar .gcb-btn {
+    padding: 5px 14px;
+    background: var(--text-1); color: #fff;
+    border: none; cursor: pointer;
+    font-size: 0.75rem; font-family: inherit; font-weight: 500;
+    flex-shrink: 0; transition: background 0.15s;
+  }
+  #globalCacheBar .gcb-btn:hover { background: var(--accent); }
+  #globalCacheBar .gcb-btn:disabled { background: var(--text-3); cursor: not-allowed; }
+  @keyframes gcb-spin { to { transform: rotate(360deg); } }
+  .gcb-spinner {
+    display: inline-block; width: 10px; height: 10px;
+    border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff;
+    border-radius: 50%; animation: gcb-spin 0.7s linear infinite;
+    margin-right: 5px; vertical-align: middle;
+  }
+  body { padding-bottom: 44px; }
 
-    .legend-item { display: flex; align-items: center; gap: 8px; }
+  /* ── Responsive ────────────────────────────────────────────────────────── */
+  @media (max-width: 768px) {
+    .container { padding: 0 16px 96px; }
+    h1 { font-size: 1.75rem; }
+    .header-inner { flex-direction: column; gap: 20px; }
+  }
 
-    .legend-swatch {
-      width: 24px;
-      height: 10px;
-      border-radius: 2px;
-      flex-shrink: 0;
-    }
+  /* ── BESS functional colours ───────────────────────────────────────────── */
+  :root {
+    --discharge:       #10864a;
+    --discharge-fill:  rgba(16,134,74,0.10);
+    --discharge-light: #d1fae5;
+    --charge:          #b45309;
+    --charge-fill:     rgba(180,83,9,0.10);
+    --charge-light:    #fef3c7;
+    --revenue:         #6d28d9;
+    --revenue-neg:     var(--negative);
+  }
 
-    /* ── Fleet summary bar ──────────────────────────────────────────── */
-    .fleet-summary {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-      gap: 0;
-      border: 1px solid var(--border);
-      background: var(--surface);
-      margin-bottom: 40px;
-    }
+  /* ── Fleet summary ─────────────────────────────────────────────────────── */
+  .fleet-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    margin-bottom: 48px;
+  }
+  .fleet-stat {
+    background: var(--bg);
+    padding: 20px 24px;
+  }
+  .fleet-stat-label {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-3);
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  .fleet-stat-value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 1.0625rem;
+    font-weight: 500;
+    color: var(--text-1);
+  }
+  .fleet-stat-value.green  { color: var(--discharge); }
+  .fleet-stat-value.amber  { color: var(--charge); }
+  .fleet-stat-value.purple { color: var(--revenue); }
 
-    .fleet-stat {
-      padding: 20px 24px;
-      border-right: 1px solid var(--border);
-    }
-    .fleet-stat:last-child { border-right: none; }
-    .fleet-stat-label {
-      font-size: 0.6875rem;
-      text-transform: uppercase;
-      letter-spacing: 0.07em;
-      color: var(--text-3);
-      margin-bottom: 6px;
-    }
-    .fleet-stat-value {
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 1.1rem;
-      font-weight: 500;
-      color: var(--text-1);
-    }
-    .fleet-stat-value.green { color: var(--discharge); }
-    .fleet-stat-value.amber { color: var(--charge); }
-    .fleet-stat-value.purple { color: var(--revenue); }
+  /* ── Legend ────────────────────────────────────────────────────────────── */
+  .legend {
+    display: none;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin-bottom: 40px;
+    padding: 14px 20px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border);
+    font-size: 0.78rem;
+    color: var(--text-2);
+  }
+  .legend-item { display: flex; align-items: center; gap: 8px; }
+  .legend-swatch {
+    width: 24px; height: 8px;
+    border-radius: 1px; flex-shrink: 0;
+  }
 
-    /* ── BESS card grid ─────────────────────────────────────────────── */
-    .bess-grid {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 28px;
-    }
+  /* ── BESS card grid ────────────────────────────────────────────────────── */
+  .bess-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
 
-    /* ── Single BESS card ───────────────────────────────────────────── */
-    .bess-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      overflow: hidden;
-    }
+  /* ── BESS card ─────────────────────────────────────────────────────────── */
+  .bess-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .card-title {
+    font-family: 'IBM Plex Serif', serif;
+    font-size: 1.0625rem;
+    font-weight: 600;
+    color: var(--text-1);
+    line-height: 1.3;
+  }
+  .card-meta {
+    font-size: 0.6875rem;
+    color: var(--text-2);
+    margin-top: 4px;
+    font-family: 'IBM Plex Mono', monospace;
+    letter-spacing: 0.01em;
+  }
+  .bess-badge {
+    font-size: 0.625rem;
+    font-weight: 600;
+    padding: 3px 8px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    flex-shrink: 0;
+    background: var(--discharge-light);
+    color: var(--discharge);
+    border: 1px solid rgba(16,134,74,0.25);
+  }
 
-    .card-header {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 20px 24px 16px;
-      border-bottom: 1px solid var(--border);
-    }
+  /* ── Stats row ─────────────────────────────────────────────────────────── */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    border-bottom: 1px solid var(--border);
+  }
+  @media (max-width: 900px) { .stats-row { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 520px) { .stats-row { grid-template-columns: repeat(2, 1fr); } }
 
-    .card-title {
-      font-family: 'IBM Plex Serif', serif;
-      font-size: 1.15rem;
-      font-weight: 600;
-      color: var(--text-1);
-      line-height: 1.3;
-    }
+  .stat {
+    padding: 14px 18px;
+    border-right: 1px solid var(--border);
+  }
+  .stat:last-child { border-right: none; }
+  .stat-value.amber  { color: var(--charge); }
+  .stat-value.purple { color: var(--revenue); }
 
-    .card-meta {
-      font-size: 0.73rem;
-      color: var(--text-2);
-      margin-top: 4px;
-      font-family: 'IBM Plex Mono', monospace;
-    }
+  /* ── Chart wrapper ─────────────────────────────────────────────────────── */
+  .chart-wrapper {
+    padding: 20px 20px 16px;
+    height: 300px;
+    position: relative;
+  }
 
-    .bess-badge {
-      font-size: 0.65rem;
-      font-weight: 600;
-      padding: 3px 10px;
-      letter-spacing: 0.07em;
-      text-transform: uppercase;
-      white-space: nowrap;
-      flex-shrink: 0;
-      background: var(--discharge-light);
-      color: var(--discharge);
-      border: 1px solid rgba(16,134,74,0.2);
-    }
+  /* ── No data ───────────────────────────────────────────────────────────── */
+  .no-data {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 220px;
+    color: var(--text-3);
+    font-size: 0.875rem;
+    font-style: italic;
+  }
 
-    /* ── Stats row ──────────────────────────────────────────────────── */
-    .stats-row {
-      display: grid;
-      grid-template-columns: repeat(6, 1fr);
-      border-bottom: 1px solid var(--border);
-    }
+  /* ── Error screen ──────────────────────────────────────────────────────── */
+  .error-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px 24px;
+    text-align: center;
+    gap: 16px;
+  }
+  .error-screen h3 {
+    font-family: 'IBM Plex Serif', serif;
+    font-size: 1.125rem;
+    color: var(--negative);
+  }
+  .error-screen p {
+    font-size: 0.875rem;
+    color: var(--text-2);
+    max-width: 480px;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .retry-btn {
+    margin-top: 4px;
+    padding: 9px 22px;
+    background: var(--text-1);
+    color: #fff;
+    border: none;
+    font-size: 0.875rem;
+    font-family: 'IBM Plex Sans', sans-serif;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .retry-btn:hover { background: var(--discharge); }
 
-    @media (max-width: 900px) {
-      .stats-row { grid-template-columns: repeat(3, 1fr); }
-    }
-    @media (max-width: 520px) {
-      .stats-row { grid-template-columns: repeat(2, 1fr); }
-    }
-
-    .stat {
-      padding: 14px 18px;
-      border-right: 1px solid var(--border);
-    }
-    .stat:last-child { border-right: none; }
-
-    .stat-label {
-      font-size: 0.6875rem;
-      color: var(--text-3);
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      margin-bottom: 4px;
-    }
-
-    .stat-value {
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 0.9375rem;
-      font-weight: 500;
-      color: var(--text-1);
-    }
-
-    .stat-value.green  { color: var(--discharge); }
-    .stat-value.amber  { color: var(--charge); }
-    .stat-value.purple { color: var(--revenue); }
-    .stat-value.red    { color: var(--revenue-neg); }
-    .stat-value.muted  { color: var(--text-3); }
-
-    /* ── Chart wrapper ──────────────────────────────────────────────── */
-    .chart-wrapper {
-      padding: 20px 20px 16px;
-      height: 300px;
-      position: relative;
-    }
-
-    /* ── No-data placeholder ────────────────────────────────────────── */
-    .no-data {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      height: 220px;
-      color: var(--text-3);
-      font-size: 0.875rem;
-      font-style: italic;
-    }
-
-    /* ── Loading / Error screens ────────────────────────────────────── */
-    .loading-screen, .error-screen {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 80px 24px;
-      text-align: center;
-      gap: 16px;
-    }
-
-    .spinner {
-      width: 36px;
-      height: 36px;
-      border: 3px solid var(--border);
-      border-top-color: var(--discharge);
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    .loading-msg {
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 0.875rem;
-      color: var(--text-2);
-    }
-
-    .loading-sub {
-      font-size: 0.8rem;
-      color: var(--text-3);
-    }
-
-    .error-screen h3 {
-      font-family: 'IBM Plex Serif', serif;
-      font-size: 1.2rem;
-      color: var(--revenue-neg);
-    }
-
-    .error-screen p {
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 0.8rem;
-      color: var(--text-2);
-      max-width: 520px;
-    }
-
-    .retry-btn {
-      margin-top: 8px;
-      padding: 9px 22px;
-      background: var(--text-1);
-      color: #fff;
-      border: none;
-      font-size: 0.875rem;
-      font-family: 'IBM Plex Sans', sans-serif;
-      cursor: pointer;
-    }
-    .retry-btn:hover { background: var(--discharge); }
-
-    /* ── Footer ─────────────────────────────────────────────────────── */
-    .page-footer {
-      margin-top: 56px;
-      padding-top: 20px;
-      border-top: 1px solid var(--border);
-      font-size: 0.73rem;
-      color: var(--text-3);
-      display: flex;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-
-    .page-footer a { color: var(--text-2); text-decoration: underline; }
   </style>
 </head>
 <body>
 
 <div class="container">
 
-  <header>
-    <div class="header-content">
+    <header>
+    <div class="header-inner">
       <div>
         <h1>NSW Battery Storage</h1>
-        <div class="subtitle">5-minute charge, discharge &amp; revenue · All operating BESS in NSW1 · Last 8 days</div>
-        <div class="date-range" id="dateRange">Loading…</div>
+        <p class="subtitle">5-minute charge, discharge and revenue for all operating BESS in NSW1 — last 8 days</p>
+        <p class="date-range" id="dateRange">Loading…</p>
       </div>
-      <div class="nav-links">
-        <a href="australian-energy-market.html" class="nav-link secondary">← Live Dashboard</a>
-        <a href="historical-data.html" class="nav-link secondary">Historical</a>
-        <a href="facility-data.html" class="nav-link secondary">Generators</a>
-      </div>
+      <nav class="header-nav">
+        <a href="australian-energy-market.html" class="nav-link">Live Prices</a>
+        <a href="historical-data.html" class="nav-link">Historical</a>
+        <a href="facility-data.html" class="nav-link">Generators</a>
+        <a href="bess-nsw.html" class="nav-link active">NSW Batteries</a>
+      </nav>
     </div>
   </header>
 
@@ -800,41 +888,430 @@
 
     <!-- ═══ Global Cache Status Bar (injected by caching system) ═══════════════ -->
     <style>
-      #globalCacheBar {
-        position: fixed; bottom: 0; left: 0; right: 0;
-        background: rgba(255,255,255,0.97);
-        border-top: 1px solid #e5e5e5;
-        padding: 10px 24px;
-        display: flex; align-items: center; gap: 16px;
-        font-family: IBM Plex Sans, system-ui, sans-serif;
-        font-size: 0.8rem; color: #666;
-        z-index: 999;
-        box-shadow: 0 -2px 8px rgba(0,0,0,0.06);
-      }
-      #globalCacheBar .gcb-dot {
-        width: 8px; height: 8px; border-radius: 50%; background: #9ca3af; flex-shrink: 0;
-      }
-      #globalCacheBar .gcb-dot.fresh  { background: #34d399; }
-      #globalCacheBar .gcb-dot.stale  { background: #fbbf24; }
-      #globalCacheBar .gcb-dot.miss   { background: #f87171; }
-      #globalCacheBar .gcb-text { flex: 1; }
-      #globalCacheBar .gcb-btn {
-        padding: 6px 14px; background: #1a1a1a; color: #fff;
-        border: none; cursor: pointer; font-size: 0.8rem;
-        font-family: inherit; font-weight: 500; flex-shrink: 0;
-        transition: background 0.15s;
-      }
-      #globalCacheBar .gcb-btn:hover { background: #2563eb; }
-      #globalCacheBar .gcb-btn:disabled { background: #9ca3af; cursor: not-allowed; }
-      body { padding-bottom: 44px !important; }
-      @keyframes gcb-spin { to { transform: rotate(360deg); } }
-      .gcb-spinner {
-        display: inline-block; width: 10px; height: 10px;
-        border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff;
-        border-radius: 50%; animation: gcb-spin 0.7s linear infinite;
-        margin-right: 5px; vertical-align: middle;
-      }
-    </style>
+  /* ── Reset ────────────────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* ── Tokens ────────────────────────────────────────────────────────────── */
+  :root {
+    --bg:           #ffffff;
+    --bg-subtle:    #f9fafb;
+    --border:       #e5e7eb;
+    --text-1:       #111827;
+    --text-2:       #6b7280;
+    --text-3:       #9ca3af;
+    --accent:       #2563eb;
+    --accent-bg:    #eff6ff;
+    --positive:     #059669;
+    --negative:     #dc2626;
+  }
+
+  /* ── Base ──────────────────────────────────────────────────────────────── */
+  body {
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text-1);
+    min-height: 100vh;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Layout ────────────────────────────────────────────────────────────── */
+  .container {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 28px 96px;
+  }
+
+  /* ── Header ────────────────────────────────────────────────────────────── */
+  header {
+    padding: 44px 0 32px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 48px;
+  }
+  .header-inner {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 32px;
+    flex-wrap: wrap;
+  }
+  h1 {
+    font-family: 'IBM Plex Serif', Georgia, serif;
+    font-size: 2.125rem;
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    color: var(--text-1);
+    margin-bottom: 8px;
+  }
+  .subtitle {
+    font-size: 0.9375rem;
+    color: var(--text-2);
+    font-weight: 400;
+    max-width: 520px;
+    line-height: 1.5;
+  }
+  .date-range {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.6875rem;
+    color: var(--text-3);
+    margin-top: 8px;
+    letter-spacing: 0.01em;
+  }
+
+  /* ── Navigation ────────────────────────────────────────────────────────── */
+  .header-nav {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    padding-top: 6px;
+  }
+  .nav-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 7px 15px;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    text-decoration: none;
+    border: 1px solid var(--border);
+    color: var(--text-2);
+    background: var(--bg);
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+    white-space: nowrap;
+    font-family: 'IBM Plex Sans', sans-serif;
+  }
+  .nav-link:hover {
+    border-color: var(--text-1);
+    color: var(--text-1);
+  }
+  .nav-link.active {
+    background: var(--text-1);
+    border-color: var(--text-1);
+    color: #ffffff;
+  }
+  .nav-link.active:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  /* ── Section title ─────────────────────────────────────────────────────── */
+  .section-title {
+    font-family: 'IBM Plex Serif', Georgia, serif;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-1);
+    letter-spacing: -0.01em;
+    margin-bottom: 20px;
+  }
+
+  /* ── Stat grid (shared across pages) ──────────────────────────────────── */
+  .stat-label {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-3);
+    margin-bottom: 5px;
+    font-weight: 500;
+  }
+  .stat-value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: var(--text-1);
+  }
+  .stat-value.muted  { color: var(--text-3); font-style: italic; }
+  .stat-value.green  { color: var(--positive); }
+  .stat-value.red    { color: var(--negative); }
+
+  /* ── Badges ────────────────────────────────────────────────────────────── */
+  .badge {
+    display: inline-block;
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+
+  /* ── Spinner ───────────────────────────────────────────────────────────── */
+  .spinner {
+    width: 32px;
+    height: 32px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Loading screen ────────────────────────────────────────────────────── */
+  .loading-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 96px 24px;
+    text-align: center;
+    gap: 16px;
+    color: var(--text-2);
+  }
+  .loading-msg {
+    font-size: 0.9rem;
+    color: var(--text-2);
+  }
+  .loading-sub {
+    font-size: 0.8125rem;
+    color: var(--text-3);
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  /* ── Page footer ───────────────────────────────────────────────────────── */
+  .page-footer {
+    margin-top: 64px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    font-size: 0.75rem;
+    color: var(--text-3);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .page-footer a {
+    color: var(--text-2);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  /* ── Cache status bar ──────────────────────────────────────────────────── */
+  #globalCacheBar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: rgba(255,255,255,0.97);
+    backdrop-filter: blur(8px);
+    border-top: 1px solid var(--border);
+    padding: 10px 28px;
+    display: flex; align-items: center; gap: 12px;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 0.75rem; color: var(--text-2);
+    z-index: 999;
+  }
+  #globalCacheBar .gcb-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--text-3); flex-shrink: 0;
+    transition: background 0.3s;
+  }
+  #globalCacheBar .gcb-dot.fresh  { background: var(--positive); }
+  #globalCacheBar .gcb-dot.stale  { background: #f59e0b; }
+  #globalCacheBar .gcb-dot.miss   { background: var(--negative); }
+  #globalCacheBar .gcb-text { flex: 1; }
+  #globalCacheBar .gcb-btn {
+    padding: 5px 14px;
+    background: var(--text-1); color: #fff;
+    border: none; cursor: pointer;
+    font-size: 0.75rem; font-family: inherit; font-weight: 500;
+    flex-shrink: 0; transition: background 0.15s;
+  }
+  #globalCacheBar .gcb-btn:hover { background: var(--accent); }
+  #globalCacheBar .gcb-btn:disabled { background: var(--text-3); cursor: not-allowed; }
+  @keyframes gcb-spin { to { transform: rotate(360deg); } }
+  .gcb-spinner {
+    display: inline-block; width: 10px; height: 10px;
+    border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff;
+    border-radius: 50%; animation: gcb-spin 0.7s linear infinite;
+    margin-right: 5px; vertical-align: middle;
+  }
+  body { padding-bottom: 44px; }
+
+  /* ── Responsive ────────────────────────────────────────────────────────── */
+  @media (max-width: 768px) {
+    .container { padding: 0 16px 96px; }
+    h1 { font-size: 1.75rem; }
+    .header-inner { flex-direction: column; gap: 20px; }
+  }
+
+  /* ── BESS functional colours ───────────────────────────────────────────── */
+  :root {
+    --discharge:       #10864a;
+    --discharge-fill:  rgba(16,134,74,0.10);
+    --discharge-light: #d1fae5;
+    --charge:          #b45309;
+    --charge-fill:     rgba(180,83,9,0.10);
+    --charge-light:    #fef3c7;
+    --revenue:         #6d28d9;
+    --revenue-neg:     var(--negative);
+  }
+
+  /* ── Fleet summary ─────────────────────────────────────────────────────── */
+  .fleet-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    margin-bottom: 48px;
+  }
+  .fleet-stat {
+    background: var(--bg);
+    padding: 20px 24px;
+  }
+  .fleet-stat-label {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-3);
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  .fleet-stat-value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 1.0625rem;
+    font-weight: 500;
+    color: var(--text-1);
+  }
+  .fleet-stat-value.green  { color: var(--discharge); }
+  .fleet-stat-value.amber  { color: var(--charge); }
+  .fleet-stat-value.purple { color: var(--revenue); }
+
+  /* ── Legend ────────────────────────────────────────────────────────────── */
+  .legend {
+    display: none;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin-bottom: 40px;
+    padding: 14px 20px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border);
+    font-size: 0.78rem;
+    color: var(--text-2);
+  }
+  .legend-item { display: flex; align-items: center; gap: 8px; }
+  .legend-swatch {
+    width: 24px; height: 8px;
+    border-radius: 1px; flex-shrink: 0;
+  }
+
+  /* ── BESS card grid ────────────────────────────────────────────────────── */
+  .bess-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  /* ── BESS card ─────────────────────────────────────────────────────────── */
+  .bess-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .card-title {
+    font-family: 'IBM Plex Serif', serif;
+    font-size: 1.0625rem;
+    font-weight: 600;
+    color: var(--text-1);
+    line-height: 1.3;
+  }
+  .card-meta {
+    font-size: 0.6875rem;
+    color: var(--text-2);
+    margin-top: 4px;
+    font-family: 'IBM Plex Mono', monospace;
+    letter-spacing: 0.01em;
+  }
+  .bess-badge {
+    font-size: 0.625rem;
+    font-weight: 600;
+    padding: 3px 8px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    flex-shrink: 0;
+    background: var(--discharge-light);
+    color: var(--discharge);
+    border: 1px solid rgba(16,134,74,0.25);
+  }
+
+  /* ── Stats row ─────────────────────────────────────────────────────────── */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    border-bottom: 1px solid var(--border);
+  }
+  @media (max-width: 900px) { .stats-row { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 520px) { .stats-row { grid-template-columns: repeat(2, 1fr); } }
+
+  .stat {
+    padding: 14px 18px;
+    border-right: 1px solid var(--border);
+  }
+  .stat:last-child { border-right: none; }
+  .stat-value.amber  { color: var(--charge); }
+  .stat-value.purple { color: var(--revenue); }
+
+  /* ── Chart wrapper ─────────────────────────────────────────────────────── */
+  .chart-wrapper {
+    padding: 20px 20px 16px;
+    height: 300px;
+    position: relative;
+  }
+
+  /* ── No data ───────────────────────────────────────────────────────────── */
+  .no-data {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 220px;
+    color: var(--text-3);
+    font-size: 0.875rem;
+    font-style: italic;
+  }
+
+  /* ── Error screen ──────────────────────────────────────────────────────── */
+  .error-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px 24px;
+    text-align: center;
+    gap: 16px;
+  }
+  .error-screen h3 {
+    font-family: 'IBM Plex Serif', serif;
+    font-size: 1.125rem;
+    color: var(--negative);
+  }
+  .error-screen p {
+    font-size: 0.875rem;
+    color: var(--text-2);
+    max-width: 480px;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .retry-btn {
+    margin-top: 4px;
+    padding: 9px 22px;
+    background: var(--text-1);
+    color: #fff;
+    border: none;
+    font-size: 0.875rem;
+    font-family: 'IBM Plex Sans', sans-serif;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .retry-btn:hover { background: var(--discharge); }
+
+  </style>
 
     <div id="globalCacheBar">
       <div class="gcb-dot" id="gcbDot"></div>
