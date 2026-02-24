@@ -354,10 +354,34 @@
             font-size: 0.8125rem;
         }
 
-        .refresh-btn {
+        .refresh-panel {
             position: fixed;
             bottom: 32px;
             right: 32px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 8px;
+            z-index: 100;
+        }
+
+        .cache-status-badge {
+            background: rgba(255,255,255,0.95);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 6px 12px;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            display: none;
+        }
+
+        .cache-status-badge.visible { display: block; }
+        .cache-status-badge.stale   { color: #b45309; border-color: #fcd34d; }
+        .cache-status-badge.fresh   { color: #065f46; border-color: #6ee7b7; }
+        .cache-status-badge.missing { color: #991b1b; border-color: #fca5a5; }
+
+        .refresh-btn {
             padding: 12px 20px;
             background: var(--text-primary);
             color: var(--background);
@@ -370,13 +394,20 @@
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
         }
 
-        .refresh-btn:hover {
-            background: var(--accent);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-        }
+        .refresh-btn:hover { background: var(--accent); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+        .refresh-btn:active { transform: translateY(1px); }
+        .refresh-btn:disabled { background: #9ca3af; cursor: not-allowed; transform: none; }
 
-        .refresh-btn:active {
-            transform: translateY(1px);
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .refresh-btn .spinner-inline {
+            display: inline-block;
+            width: 12px; height: 12px;
+            border: 2px solid rgba(255,255,255,0.4);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            margin-right: 6px;
+            vertical-align: middle;
         }
 
         @media (max-width: 768px) {
@@ -465,27 +496,119 @@
 
         <footer>
             <p>Data sourced from AEMO and Australian energy news providers</p>
-            <p>Last updated: <span id="lastUpdate"></span></p>
+            <p>Last fetched: <span id="lastUpdate">—</span> &nbsp;·&nbsp; Cached: <span id="cacheAge">checking…</span></p>
         </footer>
     </div>
 
-    <button class="refresh-btn" onclick="loadAllData()">Refresh</button>
+    <div class="refresh-panel">
+        <div id="cacheStatusBadge" class="cache-status-badge"></div>
+        <button class="refresh-btn" id="refreshBtn" onclick="handleRefresh()">Refresh Data</button>
+    </div>
 
     <script>
-        // ─── Configuration ───────────────────────────────────────────────────────
-        const PRICE_REFRESH_MS = 5 * 60 * 1000;   // 5 minutes
-        const NEWS_REFRESH_MS  = 12 * 60 * 60 * 1000; // 12 hours
-
+        // ─── Configuration ────────────────────────────────────────────────────────
         const API_BASE = window.location.protocol === 'file:'
             ? 'http://localhost:3000'
             : window.location.origin;
 
-        let lastNewsUpdate = 0;
+        // ─── Cache Status ─────────────────────────────────────────────────────────
+        async function loadCacheStatus() {
+            try {
+                const resp = await fetch(`${API_BASE}/api/cache-status`);
+                if (!resp.ok) return;
+                const status = await resp.json();
 
-        // ─── Live Prices ─────────────────────────────────────────────────────────
+                const badge = document.getElementById('cacheStatusBadge');
+                const cacheAgeEl = document.getElementById('cacheAge');
+
+                if (!status.redisConfigured) {
+                    badge.textContent = '⚠ Redis not configured — data caching disabled';
+                    badge.className = 'cache-status-badge visible missing';
+                    if (cacheAgeEl) cacheAgeEl.textContent = 'Redis not configured';
+                    return;
+                }
+
+                // Filter to only the entries this page uses
+                const pageEntries = (status.entries || []).filter(e =>
+                    e.label === 'Live Prices' || e.label === 'Energy News'
+                );
+                const present = pageEntries.filter(e => e.present);
+                const ages = present.map(e => e.ageMinutes).filter(n => n !== null);
+                const maxAge = ages.length ? Math.max(...ages) : null;
+                const allPresent = pageEntries.length > 0 && present.length === pageEntries.length;
+
+                function ageHuman(m) {
+                    if (!m || m < 1) return 'just now';
+                    if (m < 60) return Math.round(m) + ' min ago';
+                    const h = Math.round(m / 60);
+                    return h < 24 ? h + ' hr ago' : Math.round(h / 24) + ' days ago';
+                }
+                const human = maxAge !== null ? ageHuman(maxAge) : '—';
+                if (cacheAgeEl) cacheAgeEl.textContent = human;
+
+                if (!allPresent) {
+                    badge.textContent = '⚠ No cached data — click Refresh';
+                    badge.className = 'cache-status-badge visible missing';
+                } else if (maxAge !== null && maxAge > 23 * 60) {
+                    badge.textContent = `⏱ Cached ${human} — consider refreshing`;
+                    badge.className = 'cache-status-badge visible stale';
+                } else if (maxAge !== null) {
+                    badge.textContent = `✓ Cached ${human}`;
+                    badge.className = 'cache-status-badge visible fresh';
+                    setTimeout(() => { badge.className = 'cache-status-badge'; }, 5000);
+                }
+            } catch (err) {
+                console.warn('[cache-status]', err.message);
+            }
+        }
+
+        // ─── Refresh Button ───────────────────────────────────────────────────────
+        // Only refreshes the two endpoints this page uses: live-prices and news.
+        // Stays well under the 60 s Vercel function timeout.
+        async function handleRefresh() {
+            const btn = document.getElementById('refreshBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-inline"></span>Refreshing…';
+
+            const badge = document.getElementById('cacheStatusBadge');
+            badge.textContent = 'Fetching fresh prices and news…';
+            badge.className = 'cache-status-badge visible';
+
+            try {
+                // Force-refresh only this page's two endpoints in parallel
+                const [pricesResp, newsResp] = await Promise.all([
+                    fetch(`${API_BASE}/api/live-prices?force=true`),
+                    fetch(`${API_BASE}/api/news?force=true`),
+                ]);
+
+                const allOk = pricesResp.ok && newsResp.ok;
+
+                if (allOk) {
+                    badge.textContent = '✓ Prices and news refreshed';
+                    badge.className = 'cache-status-badge visible fresh';
+                } else {
+                    badge.textContent = '⚠ One or more fetches failed — check console';
+                    badge.className = 'cache-status-badge visible stale';
+                }
+
+                // Re-render from the now-warm cache
+                await loadAllData();
+                await loadCacheStatus();
+
+            } catch (err) {
+                console.error('[refresh]', err);
+                badge.textContent = '⚠ Refresh failed: ' + err.message;
+                badge.className = 'cache-status-badge visible missing';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Refresh Data';
+            }
+        }
+
+        // ─── Live Prices ──────────────────────────────────────────────────────────
         function showPriceLoading() {
             document.getElementById('dashboard').innerHTML =
-                '<div class="loading"><div class="spinner"></div>Fetching live NEM prices…</div>';
+                '<div class="loading"><div class="spinner"></div>Loading market data…</div>';
         }
 
         function renderDashboard(data) {
@@ -495,7 +618,6 @@
                 const changeNum = parseFloat(item.change || 0);
                 const isNeg = changeNum < 0;
                 const priceClass = priceNum < 0 ? 'negative' : '';
-
                 return `
                 <div class="card">
                     <div class="card-header">
@@ -523,22 +645,23 @@
                 const result = await resp.json();
                 if (result.success && result.data && result.data.length > 0) {
                     renderDashboard(result.data);
+                    const ts = result.cachedAt || result.fetchedAt || new Date().toISOString();
                     document.getElementById('lastUpdate').textContent =
-                        new Date(result.fetchedAt || Date.now()).toLocaleString('en-AU', {
+                        new Date(ts).toLocaleString('en-AU', {
                             timeZone: 'Australia/Sydney',
                             dateStyle: 'medium',
                             timeStyle: 'short',
-                        });
+                        }) + (result.fromCache ? ' (cached)' : ' (live)');
                 } else {
                     throw new Error('No price data in response');
                 }
             } catch (err) {
                 console.error('[prices]', err);
-                renderPriceError('Could not load live prices — retrying in 5 minutes');
+                renderPriceError('Could not load live prices.');
             }
         }
 
-        // ─── News ────────────────────────────────────────────────────────────────
+        // ─── News ─────────────────────────────────────────────────────────────────
         function showNewsLoading() {
             document.getElementById('news').innerHTML =
                 '<div class="loading"><div class="spinner"></div>Fetching latest news…</div>';
@@ -573,7 +696,6 @@
                 const result = await resp.json();
                 if (result.articles && result.articles.length > 0) {
                     renderNews(result.articles);
-                    lastNewsUpdate = Date.now();
                 } else {
                     throw new Error('No articles in response');
                 }
@@ -584,16 +706,18 @@
             }
         }
 
-        // ─── Bootstrap ───────────────────────────────────────────────────────────
-        showPriceLoading();
-        showNewsLoading();
-        loadPrices();
-        loadNews();
+        // ─── Bootstrap ────────────────────────────────────────────────────────────
+        async function loadAllData() {
+            showPriceLoading();
+            showNewsLoading();
+            await Promise.all([loadPrices(), loadNews()]);
+        }
 
-        setInterval(loadPrices, PRICE_REFRESH_MS);
-        setInterval(() => {
-            if (Date.now() - lastNewsUpdate >= NEWS_REFRESH_MS) loadNews();
-        }, NEWS_REFRESH_MS);
+        loadAllData();
+        loadCacheStatus();
+
+        // Cache status refreshes every 5 minutes to keep age display current
+        setInterval(loadCacheStatus, 5 * 60 * 1000);
     </script>
 </body>
 </html>
