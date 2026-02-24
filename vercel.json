@@ -3,9 +3,6 @@
     "api/historical-all.js": {
       "maxDuration": 60
     },
-    "api/historical-all-cron.js": {
-      "maxDuration": 300
-    },
     "api/refresh-all.js": {
       "maxDuration": 60
     },
