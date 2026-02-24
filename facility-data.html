@@ -638,5 +638,111 @@
 
   init();
 </script>
+
+    <!-- ═══ Global Cache Status Bar (injected by caching system) ═══════════════ -->
+    <style>
+      #globalCacheBar {
+        position: fixed; bottom: 0; left: 0; right: 0;
+        background: rgba(255,255,255,0.97);
+        border-top: 1px solid #e5e5e5;
+        padding: 10px 24px;
+        display: flex; align-items: center; gap: 16px;
+        font-family: IBM Plex Sans, system-ui, sans-serif;
+        font-size: 0.8rem; color: #666;
+        z-index: 999;
+        box-shadow: 0 -2px 8px rgba(0,0,0,0.06);
+      }
+      #globalCacheBar .gcb-dot {
+        width: 8px; height: 8px; border-radius: 50%; background: #9ca3af; flex-shrink: 0;
+      }
+      #globalCacheBar .gcb-dot.fresh  { background: #34d399; }
+      #globalCacheBar .gcb-dot.stale  { background: #fbbf24; }
+      #globalCacheBar .gcb-dot.miss   { background: #f87171; }
+      #globalCacheBar .gcb-text { flex: 1; }
+      #globalCacheBar .gcb-btn {
+        padding: 6px 14px; background: #1a1a1a; color: #fff;
+        border: none; cursor: pointer; font-size: 0.8rem;
+        font-family: inherit; font-weight: 500; flex-shrink: 0;
+        transition: background 0.15s;
+      }
+      #globalCacheBar .gcb-btn:hover { background: #2563eb; }
+      #globalCacheBar .gcb-btn:disabled { background: #9ca3af; cursor: not-allowed; }
+      body { padding-bottom: 44px !important; }
+      @keyframes gcb-spin { to { transform: rotate(360deg); } }
+      .gcb-spinner {
+        display: inline-block; width: 10px; height: 10px;
+        border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff;
+        border-radius: 50%; animation: gcb-spin 0.7s linear infinite;
+        margin-right: 5px; vertical-align: middle;
+      }
+    </style>
+
+    <div id="globalCacheBar">
+      <div class="gcb-dot" id="gcbDot"></div>
+      <div class="gcb-text" id="gcbText">Checking data cache…</div>
+      <button class="gcb-btn" id="gcbBtn" onclick="gcbRefresh()">↺ Refresh Facility Data</button>
+    </div>
+
+    <script>
+    (function() {
+      const API_BASE = window.location.protocol === 'file:' ? 'http://localhost:3000' : window.location.origin;
+      const dot  = document.getElementById('gcbDot');
+      const text = document.getElementById('gcbText');
+      const btn  = document.getElementById('gcbBtn');
+
+      async function gcbCheckStatus() {
+        try {
+          const r = await fetch(API_BASE + '/api/cache-status');
+          const s = await r.json();
+          if (!s.redisConfigured) {
+            dot.className = 'gcb-dot miss';
+            text.textContent = 'Redis not configured — data caching disabled.';
+            return;
+          }
+          // Only check the entry for this page
+          const entry = (s.entries || []).find(e => e.label === 'Facility Data');
+          if (!entry || !entry.present) {
+            dot.className = 'gcb-dot miss';
+            text.textContent = 'Facility data not cached — click Refresh Now to load.';
+          } else if (entry.ageMinutes > 23 * 60) {
+            dot.className = 'gcb-dot stale';
+            text.textContent = 'Facility data cached ' + entry.ageHuman + ' — consider refreshing.';
+          } else {
+            dot.className = 'gcb-dot fresh';
+            text.textContent = 'Facility data cached ' + entry.ageHuman + '. Auto-refreshes daily at 2 AM AEST.';
+          }
+        } catch(e) {
+          text.textContent = 'Could not check cache status.';
+        }
+      }
+
+      // Page-specific refresh: only hits /api/facility-data — stays under 60 s timeout
+      window.gcbRefresh = async function() {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="gcb-spinner"></span>Refreshing Facility data…';
+        dot.className = 'gcb-dot';
+        text.textContent = 'Fetching fresh facility data from OpenElectricity (may take ~20 s)…';
+        try {
+          const r = await fetch(API_BASE + '/api/facility-data?force=true');
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          text.textContent = '✓ Facility data refreshed — reloading…';
+          dot.className = 'gcb-dot fresh';
+          if (typeof loadData === 'function') await loadData();
+          else location.reload();
+          await gcbCheckStatus();
+        } catch(e) {
+          text.textContent = 'Refresh failed: ' + e.message;
+          dot.className = 'gcb-dot miss';
+        } finally {
+          btn.disabled = false;
+          btn.textContent = '↺ Refresh Now';
+        }
+      };
+
+      gcbCheckStatus();
+      setInterval(gcbCheckStatus, 5 * 60 * 1000);
+    })();
+    </script>
+
 </body>
 </html>
