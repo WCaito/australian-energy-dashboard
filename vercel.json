@@ -6,6 +6,15 @@
     "api/historical-all-cron.js": {
       "maxDuration": 300
     },
+    "api/refresh-all.js": {
+      "maxDuration": 60
+    },
+    "api/refresh-all-cron.js": {
+      "maxDuration": 300
+    },
+    "api/cache-status.js": {
+      "maxDuration": 10
+    },
     "api/live-prices.js": {
       "maxDuration": 60
     },
@@ -30,7 +39,7 @@
   },
   "crons": [
     {
-      "path": "/api/historical-all-cron",
+      "path": "/api/refresh-all-cron",
       "schedule": "0 2 * * *"
     }
   ]
