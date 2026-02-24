@@ -1,22 +1,22 @@
 /**
- * news.js — Fetch real Australian energy news via GNews API
+ * news.js — Fetch real Australian energy news via GNews API.
+ *
+ * Caching strategy:
+ *   Results are stored in Upstash Redis for 24 hours.
+ *   Pass ?force=true to bypass the cache and fetch fresh data.
+ *   The nightly cron (/api/refresh-all-cron) pre-populates this cache.
  *
  * Requires: GNEWS_API_KEY environment variable (free at https://gnews.io)
- * Free tier: 100 requests/day. Dashboard caches for 30 min so ~2 req/day.
+ * Free tier: 100 requests/day. With daily caching only 1 req/day is used.
  */
 
-module.exports = async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Cache-Control', 's-maxage=1800, stale-while-revalidate');
+const { withCache, CACHE_KEYS } = require('./_cache');
 
-  if (req.method === 'OPTIONS') return res.status(200).end();
-
+async function fetchNews() {
   const GNEWS_API_KEY = process.env.GNEWS_API_KEY;
 
   if (!GNEWS_API_KEY) {
-    return res.status(200).json({
+    return {
       success: true,
       articles: [{
         source: 'Setup Required',
@@ -30,75 +30,56 @@ module.exports = async function handler(req, res) {
       fetchedAt: new Date().toISOString(),
       source: 'Fallback — GNEWS_API_KEY not set',
       count: 1,
-    });
+    };
   }
 
-  try {
-    const url = new URL('https://gnews.io/api/v4/search');
-    url.searchParams.set('q', 'Australian energy electricity renewable solar wind');
-    url.searchParams.set('lang', 'en');
-    url.searchParams.set('country', 'au');
-    url.searchParams.set('max', '8');
-    url.searchParams.set('sortby', 'publishedAt');
-    url.searchParams.set('apikey', GNEWS_API_KEY);
+  const url = new URL('https://gnews.io/api/v4/search');
+  url.searchParams.set('q', 'Australian energy electricity renewable solar wind');
+  url.searchParams.set('lang', 'en');
+  url.searchParams.set('country', 'au');
+  url.searchParams.set('max', '8');
+  url.searchParams.set('sortby', 'publishedAt');
+  url.searchParams.set('apikey', GNEWS_API_KEY);
 
-    const controller = new AbortController();
-    const tid = setTimeout(() => controller.abort(), 8000);
+  const controller = new AbortController();
+  const tid = setTimeout(() => controller.abort(), 8000);
 
-    const response = await fetch(url.toString(), {
-      headers: { Accept: 'application/json' },
-      signal: controller.signal,
-    });
-    clearTimeout(tid);
+  const response = await fetch(url.toString(), {
+    headers: { Accept: 'application/json' },
+    signal: controller.signal,
+  });
+  clearTimeout(tid);
 
-    if (!response.ok) {
-      throw new Error(`GNews returned ${response.status}`);
-    }
+  if (!response.ok) throw new Error(`GNews returned ${response.status}`);
 
-    const data = await response.json();
-
-    if (!data.articles || data.articles.length === 0) {
-      throw new Error('No articles in GNews response');
-    }
-
-    const articles = data.articles.map(a => ({
-      source: mapSource(a.source),
-      time: timeAgo(new Date(a.publishedAt)),
-      title: a.title,
-      excerpt: a.description || a.title,
-      url: a.url,
-      categories: categorise(a.title + ' ' + (a.description || '')),
-      publishedAt: a.publishedAt,
-      image: a.image || null,
-    }));
-
-    return res.status(200).json({
-      success: true,
-      articles,
-      fetchedAt: new Date().toISOString(),
-      source: 'GNews API',
-      count: articles.length,
-    });
-  } catch (err) {
-    console.error('[news] Error:', err.message);
-    return res.status(200).json({
-      success: true,
-      articles: [{
-        source: 'API Error',
-        time: 'Now',
-        title: 'Could not load news — GNews API error',
-        excerpt: `Error: ${err.message}. Check your GNEWS_API_KEY is valid and the daily quota (100 req) hasn't been exceeded.`,
-        url: 'https://gnews.io/dashboard',
-        categories: ['Error'],
-        publishedAt: new Date().toISOString(),
-      }],
-      fetchedAt: new Date().toISOString(),
-      source: 'Fallback — GNews error',
-      count: 1,
-      error: err.message,
-    });
+  const data = await response.json();
+  if (!data.articles || data.articles.length === 0) {
+    throw new Error('No articles in GNews response');
   }
-};
+
+  const articles = data.articles.map(a => ({
+    source: mapSource(a.source),
+    time: timeAgo(new Date(a.publishedAt)),
+    title: a.title,
+    excerpt: a.description || a.title,
+    url: a.url,
+    categories: categorise(a.title + ' ' + (a.description || '')),
+    publishedAt: a.publishedAt,
+    image: a.image || null,
+  }));
+
+  return {
+    success: true,
+    articles,
+    fetchedAt: new Date().toISOString(),
+    source: 'GNews API',
+    count: articles.length,
+  };
+}
+
+module.exports = withCache(CACHE_KEYS.NEWS, fetchNews);
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function mapSource(source) {
   if (!source) return 'News';
