@@ -264,61 +264,53 @@ function summarise(data, capacityMW) {
   };
 }
 
-// ─── Handler ──────────────────────────────────────────────────────────────────
+// ─── Caching wrapper ──────────────────────────────────────────────────────────
 
-module.exports = async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=60');
-  if (req.method === 'OPTIONS') return res.status(200).end();
+const { withCache, CACHE_KEYS } = require('./_cache');
 
+async function fetchBESSNSW() {
   const now   = new Date();
   const start = new Date(now.getTime() - 8 * 24 * 3600 * 1000);
   const dateStart = toLocalNaive(start);
   const dateEnd   = toLocalNaive(now);
 
-  try {
-    const client    = await getClient();
-    const batteries = await discoverNSWBatteries(client);
+  const client    = await getClient();
+  const batteries = await discoverNSWBatteries(client);
 
-    if (!batteries.length) {
-      return res.status(200).json({
-        success: true,
-        message: 'No operating NSW battery facilities found',
-        batteries: [], dateStart, dateEnd, fetchedAt: now.toISOString(),
-      });
-    }
-
-    // Fetch power + market_value for each facility in parallel,
-    // passing the unitMap so fetchBESSData can route by fueltech
-    const results = await Promise.allSettled(
-      batteries.map(b => fetchBESSData(client, b.code, b.unitMap, dateStart, dateEnd))
-    );
-
-    const batteryData = batteries.map((b, i) => {
-      const data = results[i].status === 'fulfilled' ? results[i].value : [];
-      if (results[i].status === 'rejected') {
-        console.error(`[bess-nsw] ${b.code} fetch rejected:`, results[i].reason?.message);
-      }
-      return {
-        code:        b.code,
-        name:        b.name,
-        region:      b.region,
-        capacityMW:  +b.capacityMW.toFixed(1),
-        unitMap:     b.unitMap,  // included for client-side debugging if needed
-        stats:       summarise(data, b.capacityMW),
-        data,
-      };
-    });
-
-    return res.status(200).json({
-      success: true, dateStart, dateEnd,
-      fetchedAt: now.toISOString(),
-      region: 'NSW1', count: batteryData.length,
-      batteries: batteryData,
-    });
-
-  } catch (err) {
-    console.error('[bess-nsw] Fatal:', err.message);
-    return res.status(500).json({ success: false, error: err.message });
+  if (!batteries.length) {
+    return {
+      success: true,
+      message: 'No operating NSW battery facilities found',
+      batteries: [], dateStart, dateEnd, fetchedAt: now.toISOString(),
+    };
   }
-};
+
+  const results = await Promise.allSettled(
+    batteries.map(b => fetchBESSData(client, b.code, b.unitMap, dateStart, dateEnd))
+  );
+
+  const batteryData = batteries.map((b, i) => {
+    const data = results[i].status === 'fulfilled' ? results[i].value : [];
+    if (results[i].status === 'rejected') {
+      console.error(`[bess-nsw] ${b.code} fetch rejected:`, results[i].reason?.message);
+    }
+    return {
+      code:        b.code,
+      name:        b.name,
+      region:      b.region,
+      capacityMW:  +b.capacityMW.toFixed(1),
+      unitMap:     b.unitMap,
+      stats:       summarise(data, b.capacityMW),
+      data,
+    };
+  });
+
+  return {
+    success: true, dateStart, dateEnd,
+    fetchedAt: now.toISOString(),
+    region: 'NSW1', count: batteryData.length,
+    batteries: batteryData,
+  };
+}
+
+module.exports = withCache(CACHE_KEYS.BESS_NSW, fetchBESSNSW);
