@@ -190,69 +190,58 @@ function summarise(merged, capacity) {
   };
 }
 
-// ─── Main handler ──────────────────────────────────────────────────────────────
+// ─── Caching wrapper ──────────────────────────────────────────────────────────
 
-module.exports = async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=60');
-  if (req.method === 'OPTIONS') return res.status(200).end();
+const { withCache, CACHE_KEYS } = require('./_cache');
 
+async function fetchFacilityData() {
   const now       = new Date();
   const start     = new Date(now.getTime() - 8 * 24 * 3600 * 1000);
   const dateStart = toLocalNaive(start);
   const dateEnd   = toLocalNaive(now);
 
-  try {
-    const client = await getClient();
+  const client = await getClient();
 
-    // 1. Resolve actual names from API (non-fatal if it fails)
-    const nameMap = await resolveNames(client);
+  // 1. Resolve actual names from API (non-fatal if it fails)
+  const nameMap = await resolveNames(client);
 
-    // 2. Fetch all power data in parallel
-    const powerResults = await Promise.allSettled(
-      FACILITIES.map(f => fetchFacilityPower(client, f.code, dateStart, dateEnd))
-    );
+  // 2. Fetch all power data in parallel
+  const powerResults = await Promise.allSettled(
+    FACILITIES.map(f => fetchFacilityPower(client, f.code, dateStart, dateEnd))
+  );
 
-    // 3. Fetch regional prices once
-    const prices = await fetchRegionalPrices(client, dateStart, dateEnd);
+  // 3. Fetch regional prices once
+  const prices = await fetchRegionalPrices(client, dateStart, dateEnd);
 
-    // 4. Build response
-    const facilities = FACILITIES.map((f, i) => {
-      const powerRows = powerResults[i].status === 'fulfilled' ? powerResults[i].value : [];
-      if (powerResults[i].status === 'rejected') {
-        console.error(`[facility-data] ${f.code} power fetch rejected:`, powerResults[i].reason?.message);
-      }
-      const merged   = mergePowerPrice(powerRows, prices, f.region);
-      const capacity = powerRows.length > 0 ? Math.max(...powerRows.map(r => r.power)) : null;
+  // 4. Build response
+  const facilities = FACILITIES.map((f, i) => {
+    const powerRows = powerResults[i].status === 'fulfilled' ? powerResults[i].value : [];
+    if (powerResults[i].status === 'rejected') {
+      console.error(`[facility-data] ${f.code} power fetch rejected:`, powerResults[i].reason?.message);
+    }
+    const merged   = mergePowerPrice(powerRows, prices, f.region);
+    const capacity = powerRows.length > 0 ? Math.max(...powerRows.map(r => r.power)) : null;
 
-      return {
-        code:     f.code,
-        name:     nameMap[f.code] || f.fallbackName,
-        region:   f.region,
-        type:     f.type,
-        capacity: capacity,
-        found:    !!nameMap[f.code],
-        stats:    summarise(merged, capacity),
-        data:     merged,
-      };
-    });
+    return {
+      code:     f.code,
+      name:     nameMap[f.code] || f.fallbackName,
+      region:   f.region,
+      type:     f.type,
+      capacity: capacity,
+      found:    !!nameMap[f.code],
+      stats:    summarise(merged, capacity),
+      data:     merged,
+    };
+  });
 
-    return res.status(200).json({
-      success:      true,
-      dateStart,
-      dateEnd,
-      fetchedAt:    now.toISOString(),
-      priceRegions: [...new Set(FACILITIES.map(f => f.region))],
-      facilities,
-    });
+  return {
+    success:      true,
+    dateStart,
+    dateEnd,
+    fetchedAt:    now.toISOString(),
+    priceRegions: [...new Set(FACILITIES.map(f => f.region))],
+    facilities,
+  };
+}
 
-  } catch (err) {
-    console.error('[facility-data] Fatal error:', err);
-    return res.status(500).json({
-      success: false,
-      error:   err.message || 'Internal server error',
-    });
-  }
-};
+module.exports = withCache(CACHE_KEYS.FACILITY_DATA, fetchFacilityData);
