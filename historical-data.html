@@ -542,5 +542,145 @@
     // Bootstrap
     renderCharts();
   </script>
+
+    <!-- ═══ Global Cache Status Bar (injected by caching system) ═══════════════ -->
+    <style>
+      #globalCacheBar {
+        position: fixed; bottom: 0; left: 0; right: 0;
+        background: rgba(255,255,255,0.97);
+        border-top: 1px solid #e5e5e5;
+        padding: 10px 24px;
+        display: flex; align-items: center; gap: 16px;
+        font-family: IBM Plex Sans, system-ui, sans-serif;
+        font-size: 0.8rem; color: #666;
+        z-index: 999;
+        box-shadow: 0 -2px 8px rgba(0,0,0,0.06);
+      }
+      #globalCacheBar .gcb-dot {
+        width: 8px; height: 8px; border-radius: 50%; background: #9ca3af; flex-shrink: 0;
+      }
+      #globalCacheBar .gcb-dot.fresh  { background: #34d399; }
+      #globalCacheBar .gcb-dot.stale  { background: #fbbf24; }
+      #globalCacheBar .gcb-dot.miss   { background: #f87171; }
+      #globalCacheBar .gcb-text { flex: 1; }
+      #globalCacheBar .gcb-btn {
+        padding: 6px 14px; background: #1a1a1a; color: #fff;
+        border: none; cursor: pointer; font-size: 0.8rem;
+        font-family: inherit; font-weight: 500; flex-shrink: 0;
+        transition: background 0.15s;
+      }
+      #globalCacheBar .gcb-btn:hover { background: #2563eb; }
+      #globalCacheBar .gcb-btn:disabled { background: #9ca3af; cursor: not-allowed; }
+      body { padding-bottom: 44px !important; }
+      @keyframes gcb-spin { to { transform: rotate(360deg); } }
+      .gcb-spinner {
+        display: inline-block; width: 10px; height: 10px;
+        border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff;
+        border-radius: 50%; animation: gcb-spin 0.7s linear infinite;
+        margin-right: 5px; vertical-align: middle;
+      }
+    </style>
+
+    <div id="globalCacheBar">
+      <div class="gcb-dot" id="gcbDot"></div>
+      <div class="gcb-text" id="gcbText">Checking data cache…</div>
+      <button class="gcb-btn" id="gcbBtn" onclick="gcbRefresh()">↺ Refresh Historical Data</button>
+    </div>
+
+    <script>
+    (function() {
+      const API_BASE = window.location.protocol === 'file:' ? 'http://localhost:3000' : window.location.origin;
+      const dot  = document.getElementById('gcbDot');
+      const text = document.getElementById('gcbText');
+      const btn  = document.getElementById('gcbBtn');
+
+      async function gcbCheckStatus() {
+        try {
+          const r = await fetch(API_BASE + '/api/cache-status');
+          const s = await r.json();
+          if (!s.redisConfigured) {
+            dot.className = 'gcb-dot miss';
+            text.textContent = 'Redis not configured — data caching disabled.';
+            return;
+          }
+          // Only check the historical entry for this page
+          const entry = (s.entries || []).find(e => e.label === 'Historical Data');
+          if (!entry || !entry.present) {
+            const missing = entry && entry.missingRegions && entry.missingRegions.length
+              ? ' Missing: ' + entry.missingRegions.join(', ') + '.'
+              : '';
+            dot.className = 'gcb-dot miss';
+            text.textContent = 'Historical data not fully cached — click Refresh Now.' + missing;
+          } else {
+            dot.className = 'gcb-dot fresh';
+            text.textContent = 'Historical data cached (all 5 regions). Auto-refreshes daily at 2 AM AEST.';
+          }
+        } catch(e) {
+          text.textContent = 'Could not check cache status.';
+        }
+      }
+
+      // Page-specific refresh: fans out 5 per-region calls in parallel.
+      // Per-region calls always fetch fresh data from AEMO + OpenElectricity
+      // and write results into the shared KV cache. Each region takes ~10-15 s;
+      // running them in parallel keeps the total well under 60 s.
+      window.gcbRefresh = async function() {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="gcb-spinner"></span>Refreshing…';
+        dot.className = 'gcb-dot';
+
+        const REGIONS_LIST = ['NSW1', 'VIC1', 'QLD1', 'SA1', 'TAS1'];
+        let completed = 0;
+
+        function updateProgress() {
+          completed++;
+          const pct = Math.round((completed / REGIONS_LIST.length) * 100);
+          text.textContent = `Refreshing historical data… ${completed}/${REGIONS_LIST.length} regions done (${pct}%)`;
+        }
+
+        text.textContent = 'Fetching 2 years of AEMO data for all 5 regions in parallel…';
+
+        try {
+          // Fire all 5 region fetches simultaneously. Per-region endpoints always
+          // fetch fresh from upstream and update the combined KV cache key.
+          const fetches = REGIONS_LIST.map(region =>
+            fetch(API_BASE + '/api/historical-all?years=2&region=' + region)
+              .then(r => { updateProgress(); return { region, ok: r.ok, status: r.status }; })
+              .catch(e => { updateProgress(); return { region, ok: false, error: e.message }; })
+          );
+
+          const results = await Promise.all(fetches);
+          const failed  = results.filter(r => !r.ok);
+
+          if (failed.length === 0) {
+            text.textContent = '✓ All 5 regions refreshed — reloading charts…';
+            dot.className = 'gcb-dot fresh';
+          } else {
+            const names = failed.map(r => r.region).join(', ');
+            text.textContent = `⚠ ${failed.length} region(s) failed (${names}) — partial data shown`;
+            dot.className = 'gcb-dot stale';
+          }
+
+          // Force the chart renderer to re-fetch from the now-warm cache
+          window.cachedData = null;
+          if (typeof renderCharts === 'function') await renderCharts();
+          else location.reload();
+
+          await gcbCheckStatus();
+
+        } catch(e) {
+          text.textContent = 'Refresh failed: ' + e.message;
+          dot.className = 'gcb-dot miss';
+        } finally {
+          btn.disabled = false;
+          btn.textContent = '↺ Refresh Now';
+        }
+      };
+
+      gcbCheckStatus();
+      setInterval(gcbCheckStatus, 5 * 60 * 1000);
+    })();
+    </script>
+
 </body>
 </html>
