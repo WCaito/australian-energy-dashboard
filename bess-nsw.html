@@ -381,8 +381,32 @@
   /* ── Chart wrapper ─────────────────────────────────────────────────────── */
   .chart-wrapper {
     padding: 20px 20px 16px;
-    height: 300px;
+    height: 320px;
     position: relative;
+  }
+
+  /* ── FCAS explanation panel ──────────────────────────────────────────────── */
+  .fcas-panel {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-left: 3px solid #d97706;
+    padding: 14px 20px;
+    margin-bottom: 32px;
+    font-size: 0.8125rem;
+    line-height: 1.6;
+  }
+  .fcas-panel-title { font-weight: 600; color: #92400e; margin-bottom: 6px; }
+  .fcas-panel-body { color: #78350f; }
+  .fcas-panel-body strong { font-weight: 600; color: #92400e; }
+
+  /* ── FCAS note inside card ─────────────────────────────────────────────── */
+  .fcas-note {
+    padding: 8px 18px;
+    font-size: 0.73rem;
+    color: var(--text-3);
+    border-top: 1px solid var(--border);
+    background: var(--bg-subtle);
+    line-height: 1.5;
   }
 
   /* ── No data ───────────────────────────────────────────────────────────── */
@@ -440,7 +464,7 @@
     <div class="header-inner">
       <div>
         <h1>NSW Battery Storage</h1>
-        <p class="subtitle">5-minute charge, discharge and revenue for all operating BESS in NSW1 — last 8 days</p>
+        <p class="subtitle">5-minute dispatch intervals — discharge, charge and energy market revenue for all operating BESS in NSW1 — last 8 days</p>
         <p class="date-range" id="dateRange">Loading…</p>
       </div>
       <nav class="header-nav">
@@ -455,16 +479,28 @@
   <!-- Legend -->
   <div class="legend" id="legend">
     <div class="legend-item">
-      <div class="legend-swatch" style="background:var(--discharge)"></div>
-      <span>Discharge (MW export) — left axis</span>
+      <div class="legend-swatch" style="background:rgba(5,150,105,0.75)"></div>
+      <span>Discharge (MW) — exported to grid, above zero</span>
     </div>
     <div class="legend-item">
-      <div class="legend-swatch" style="background:var(--charge)"></div>
-      <span>Charge (MW import) — left axis, shown negative</span>
+      <div class="legend-swatch" style="background:rgba(180,83,9,0.70)"></div>
+      <span>Charge (MW) — imported from grid, shown negative</span>
     </div>
     <div class="legend-item">
-      <div class="legend-swatch" style="background:var(--revenue); opacity:0.7"></div>
-      <span>Cumulative revenue ($AUD) — right axis</span>
+      <div class="legend-swatch" style="background:#9ca3af;opacity:0.6"></div>
+      <span>NSW1 spot price ($/MWh) — right axis</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-swatch" style="background:#6d28d9;opacity:0.7"></div>
+      <span>Cumulative energy market revenue — right axis · FCAS excluded</span>
+    </div>
+  </div>
+
+  <!-- FCAS explanation panel -->
+  <div id="fcasNote" style="display:none" class="fcas-panel">
+    <div class="fcas-panel-title">⚠ Revenue shown is energy market only — FCAS payments are not included</div>
+    <div class="fcas-panel-body">
+      NSW batteries earn revenue from two sources: <strong>energy market arbitrage</strong> (charging cheap, discharging expensive — visible on these charts as power × spot price) and <strong>FCAS</strong> (Frequency Control Ancillary Services — a capacity payment for being <em>available</em> to respond to frequency events, regardless of whether the battery physically dispatches). The OpenElectricity API exposes only energy market revenue; FCAS clearing prices and enablement data are not available. In periods of high FCAS demand, FCAS can represent 40–60% or more of a battery's total wholesale revenue — explaining why the cumulative revenue line may step upward even when the power chart appears flat.
     </div>
   </div>
 
@@ -511,32 +547,30 @@
 <script>
   'use strict';
 
-  // ── Timezone ──────────────────────────────────────────────────────────────────
-  // API appends +10:00 to all timestamps. Format in AEST (Brisbane = UTC+10, no DST).
+  // ── Timezone ─────────────────────────────────────────────────────────────────
   const NEM_TZ = 'Australia/Brisbane';
 
   function fmtAxisLabel(isoStr) {
     const d = new Date(isoStr);
-    const day  = d.toLocaleDateString('en-AU',  { day: '2-digit', month: 'short', timeZone: NEM_TZ });
-    const time = d.toLocaleTimeString('en-AU',  { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: NEM_TZ });
+    const day  = d.toLocaleDateString('en-AU',  { day:'2-digit', month:'short', timeZone: NEM_TZ });
+    const time = d.toLocaleTimeString('en-AU',  { hour:'2-digit', minute:'2-digit', hour12:false, timeZone: NEM_TZ });
     return `${day} ${time}`;
   }
 
   function fmtTooltipTime(isoStr) {
     return new Date(isoStr).toLocaleString('en-AU', {
-      day: '2-digit', month: 'short',
-      hour: '2-digit', minute: '2-digit', hour12: false,
-      timeZone: NEM_TZ,
+      day:'2-digit', month:'short',
+      hour:'2-digit', minute:'2-digit', hour12:false, timeZone: NEM_TZ,
     }) + ' AEST';
   }
 
   function fmtDate(isoStr) {
     return new Date(isoStr).toLocaleDateString('en-AU', {
-      day: '2-digit', month: 'short', year: 'numeric', timeZone: NEM_TZ,
+      day:'2-digit', month:'short', year:'numeric', timeZone: NEM_TZ,
     });
   }
 
-  // ── Number formatting ─────────────────────────────────────────────────────────
+  // ── Number formatting ────────────────────────────────────────────────────────
 
   function fmtMW(v, dp = 1) {
     if (v === null || v === undefined) return '—';
@@ -548,6 +582,11 @@
     return `${parseFloat(v).toFixed(dp)} GWh`;
   }
 
+  function fmtMWh(v, dp = 1) {
+    if (v === null || v === undefined) return '—';
+    return `${parseFloat(v).toFixed(dp)} MWh`;
+  }
+
   function fmtRevenue(v) {
     if (v === null || v === undefined) return '—';
     const abs = Math.abs(v);
@@ -557,12 +596,17 @@
     return `${sign}${abs.toFixed(0)}`;
   }
 
+  function fmtPrice(v) {
+    if (v === null || v === undefined) return '—';
+    return `$${parseFloat(v).toFixed(2)}/MWh`;
+  }
+
   function fmtPct(v) {
     if (v === null || v === undefined) return '—';
     return `${parseFloat(v).toFixed(1)}%`;
   }
 
-  // ── Fetch ─────────────────────────────────────────────────────────────────────
+  // ── Fetch ────────────────────────────────────────────────────────────────────
 
   async function loadData() {
     const resp = await fetch('/api/bess-nsw');
@@ -573,15 +617,17 @@
     return resp.json();
   }
 
-  // ── Down-sample helper ────────────────────────────────────────────────────────
+  // ── Build a price lookup map from the nsw1Price array ────────────────────────
 
-  function downsample(rows, max = 900) {
-    if (rows.length <= max) return rows;
-    const step = Math.ceil(rows.length / max);
-    return rows.filter((_, i) => i % step === 0);
+  function buildPriceMap(nsw1Price) {
+    const map = {};
+    for (const p of (nsw1Price || [])) {
+      map[p.ts] = p.price;
+    }
+    return map;
   }
 
-  // ── Fleet summary bar ─────────────────────────────────────────────────────────
+  // ── Fleet summary bar ────────────────────────────────────────────────────────
 
   function updateFleetSummary(batteries) {
     const active = batteries.filter(b => b.stats.intervals > 0);
@@ -589,16 +635,16 @@
     const totalMW      = batteries.reduce((s, b) => s + (b.capacityMW || 0), 0);
     const totalDchGWh  = active.reduce((s, b) => s + (b.stats.totalDischargeGWh || 0), 0);
     const totalChgGWh  = active.reduce((s, b) => s + (b.stats.totalChargeGWh || 0), 0);
-    const totalRevenue = active.reduce((s, b) => s + (b.stats.netRevenueAUD || 0), 0);
+    const totalRevenue = active.reduce((s, b) => s + (b.stats.netEnergyMarketMV || 0), 0);
 
-    document.getElementById('fs-count').textContent    = batteries.length;
-    document.getElementById('fs-mw').textContent        = `${totalMW.toFixed(0)} MW`;
-    document.getElementById('fs-discharge').textContent = fmtGWh(totalDchGWh);
-    document.getElementById('fs-charge').textContent    = fmtGWh(totalChgGWh);
+    document.getElementById('fs-count').textContent     = batteries.length;
+    document.getElementById('fs-mw').textContent         = `${totalMW.toFixed(0)} MW`;
+    document.getElementById('fs-discharge').textContent  = fmtGWh(totalDchGWh);
+    document.getElementById('fs-charge').textContent     = fmtGWh(totalChgGWh);
 
     const revEl = document.getElementById('fs-revenue');
-    revEl.textContent = fmtRevenue(totalRevenue);
-    revEl.className = `fleet-stat-value ${totalRevenue >= 0 ? 'purple' : 'red'}`;
+    revEl.textContent  = fmtRevenue(totalRevenue);
+    revEl.className    = `fleet-stat-value ${totalRevenue >= 0 ? 'purple' : 'red'}`;
 
     document.getElementById('fleetSummary').style.display = 'grid';
   }
@@ -606,16 +652,14 @@
   // ── Render card HTML ──────────────────────────────────────────────────────────
 
   function renderCard(b) {
-    const s = b.stats;
+    const s       = b.stats;
     const hasData = s.intervals > 0;
 
-    const revClass = !hasData || s.netRevenueAUD === null ? 'muted'
-      : s.netRevenueAUD >= 0 ? 'purple' : 'red';
+    const revClass = !hasData || s.netEnergyMarketMV === null ? 'muted'
+      : s.netEnergyMarketMV >= 0 ? 'purple' : 'red';
 
-    const capacityLine = [
-      b.capacityMW ? `${b.capacityMW} MW` : null,
-      b.capacityMWh ? `${b.capacityMWh} MWh` : null,
-    ].filter(Boolean).join(' / ');
+    const netClass = !hasData || s.netEnergyGWh === null ? 'muted'
+      : s.netEnergyGWh >= 0 ? 'green' : 'amber';
 
     const el = document.createElement('div');
     el.className = 'bess-card';
@@ -624,22 +668,22 @@
       <div class="card-header">
         <div>
           <div class="card-title">${b.name}</div>
-          <div class="card-meta">${b.code} · ${b.region}${capacityLine ? ' · ' + capacityLine : ''}</div>
+          <div class="card-meta">${b.code} · ${b.region}${b.capacityMW ? ' · ' + b.capacityMW + ' MW' : ''}</div>
         </div>
         <span class="bess-badge">BESS</span>
       </div>
       <div class="stats-row">
         <div class="stat">
-          <div class="stat-label">Total Discharge</div>
+          <div class="stat-label">Discharge</div>
           <div class="stat-value green">${hasData ? fmtGWh(s.totalDischargeGWh) : '—'}</div>
         </div>
         <div class="stat">
-          <div class="stat-label">Total Charge</div>
+          <div class="stat-label">Charge</div>
           <div class="stat-value amber">${hasData ? fmtGWh(s.totalChargeGWh) : '—'}</div>
         </div>
         <div class="stat">
-          <div class="stat-label">Net Revenue</div>
-          <div class="stat-value ${revClass}">${hasData ? fmtRevenue(s.netRevenueAUD) : '—'}</div>
+          <div class="stat-label">Net Energy</div>
+          <div class="stat-value ${netClass}">${hasData ? fmtGWh(s.netEnergyGWh) : '—'}</div>
         </div>
         <div class="stat">
           <div class="stat-label">Peak Discharge</div>
@@ -650,94 +694,154 @@
           <div class="stat-value">${hasData ? fmtMW(s.peakChargeMW) : '—'}</div>
         </div>
         <div class="stat">
-          <div class="stat-label">Capacity Factor</div>
-          <div class="stat-value ${!hasData || s.capacityFactorPct === null ? 'muted' : ''}">${hasData ? fmtPct(s.capacityFactorPct) : '—'}</div>
+          <div class="stat-label">Energy Mkt Rev <span title="Energy market only — FCAS not included" style="cursor:help;color:var(--text-3)">ⓘ</span></div>
+          <div class="stat-value ${revClass}">${hasData ? fmtRevenue(s.netEnergyMarketMV) : '—'}</div>
         </div>
+      </div>
+      <div class="fcas-note">
+        ⓘ Revenue shown is <strong>energy market only</strong> (power × spot price).
+        FCAS enablement payments — often the dominant revenue source for NSW batteries —
+        are not available through the OpenElectricity API and are not shown.
+        A battery may earn FCAS revenue while appearing idle on the power chart.
       </div>
       <div class="chart-wrapper">
         <canvas id="chart-${b.code}"></canvas>
-      </div>
-    `;
-
+      </div>`;
     return el;
   }
 
-  // ── Build Chart.js chart ──────────────────────────────────────────────────────
+  // ── Chart per battery ─────────────────────────────────────────────────────────
+  //
+  // Chart design (5-min intervals, no aggregation):
+  //
+  //   PRIMARY (left axis):
+  //     • Green bars above zero  = discharge MW (exported to grid)
+  //     • Amber bars below zero  = charge MW (imported from grid, shown negative)
+  //     Separate datasets for discharge and charge clearly show that both can
+  //     occur in the same half-hour window (different units within one facility).
+  //     At 5-min resolution each bar corresponds directly to a dispatch interval,
+  //     so revenue and power are visually coherent.
+  //
+  //   SECONDARY (right axis 1, grey dashed):
+  //     NSW1 spot price — lets users see WHY the battery dispatches when it does.
+  //     Brief price spikes are now fully visible at 5-min resolution.
+  //
+  //   TERTIARY (right axis 2, purple/red stepped line):
+  //     Cumulative energy market revenue (energy × spot price only).
+  //     FCAS capacity payments are NOT available through the OpenElectricity API
+  //     and are not included. The stepped shape of this line should now align
+  //     with visible discharge bars, confirming data integrity.
 
   const charts = {};
+  const CHART_COLORS = {
+    discharge:     '#059669',
+    dischargeBar:  'rgba(5,150,105,0.75)',
+    charge:        '#b45309',
+    chargeBar:     'rgba(180,83,9,0.70)',
+    price:         '#9ca3af',
+    revPos:        '#6d28d9',
+    revNeg:        '#dc2626',
+    gridLine:      '#e5e7eb',
+  };
 
-  function buildChart(b) {
+  function buildChart(b, priceMap) {
     const canvas = document.getElementById(`chart-${b.code}`);
     if (!canvas) return;
 
-    if (!b.data || !b.data.length) {
-      canvas.closest('.chart-wrapper').innerHTML =
-        '<div class="no-data">No 5-minute data available for this period</div>';
+    const rows = b.data;
+    if (!rows || !rows.length) {
+      canvas.parentElement.innerHTML =
+        '<div class="no-data">No interval data available for this facility.</div>';
       return;
     }
 
-    const rows = downsample(b.data, 900);
+    // ── Datasets ──────────────────────────────────────────────────────────────
 
-    // Pre-format axis labels (AEST, category axis — no date adapter needed)
     const labels = rows.map(r => fmtAxisLabel(r.ts));
 
-    // Discharge: positive MW
-    const dischargeData = rows.map(r => r.dischargeMW ?? null);
-    // Charge: shown as NEGATIVE MW on the same axis (so chart reads as bidirectional)
-    const chargeData    = rows.map(r => r.chargeMW > 0 ? -r.chargeMW : null);
+    // Discharge: positive bars (green above zero axis)
+    const dischargeData = rows.map(r => r.dischargeMW > 0.1 ? r.dischargeMW : 0);
 
-    // Cumulative revenue ($AUD running total)
+    // Charge: negative bars (amber below zero axis — shown as negative to mirror discharge)
+    const chargeData = rows.map(r => r.chargeMW > 0.1 ? -r.chargeMW : 0);
+
+    // NSW1 spot price aligned to same timestamps
+    const priceData = rows.map(r => {
+      const p = priceMap[r.ts];
+      return (p !== undefined && p !== null) ? p : null;
+    });
+
+    // Cumulative energy-market revenue (per-interval netMV summed)
     let cumRev = 0;
     const revenueData = rows.map(r => {
-      cumRev += (r.revenueAUD ?? 0);
+      cumRev += (r.netMV ?? 0);
       return parseFloat(cumRev.toFixed(0));
     });
 
+    const finalRev = revenueData[revenueData.length - 1] ?? 0;
+    const revColor = finalRev >= 0 ? CHART_COLORS.revPos : CHART_COLORS.revNeg;
+
     if (charts[b.code]) charts[b.code].destroy();
 
-    const revColor = cumRev >= 0 ? '#6d28d9' : '#dc2626';
-
     charts[b.code] = new Chart(canvas, {
-      type: 'line',
+      type: 'bar',
       data: {
         labels,
         datasets: [
+          // 1. Discharge MW — green bars above zero
           {
             label: 'Discharge (MW)',
             data: dischargeData,
-            borderColor: '#10864a',
-            backgroundColor: 'rgba(16,134,74,0.10)',
-            borderWidth: 1.2,
-            pointRadius: 0,
-            fill: { target: 'origin', above: 'rgba(16,134,74,0.10)' },
-            tension: 0.15,
+            backgroundColor: CHART_COLORS.dischargeBar,
+            borderColor: 'transparent',
+            borderWidth: 0,
+            barPercentage: 1.0,
+            categoryPercentage: 1.0,
             yAxisID: 'y',
-            spanGaps: true,
+            order: 2,
           },
+          // 2. Charge MW — amber bars below zero
           {
             label: 'Charge (MW)',
             data: chargeData,
-            borderColor: '#b45309',
-            backgroundColor: 'rgba(180,83,9,0.10)',
-            borderWidth: 1.2,
-            pointRadius: 0,
-            fill: { target: 'origin', below: 'rgba(180,83,9,0.10)' },
-            tension: 0.15,
+            backgroundColor: CHART_COLORS.chargeBar,
+            borderColor: 'transparent',
+            borderWidth: 0,
+            barPercentage: 1.0,
+            categoryPercentage: 1.0,
             yAxisID: 'y',
-            spanGaps: true,
+            order: 2,
           },
+          // 3. NSW1 spot price — grey line, right axis
           {
-            label: 'Cumulative Revenue ($)',
+            label: 'NSW1 Price ($/MWh)',
+            data: priceData,
+            type: 'line',
+            borderColor: CHART_COLORS.price,
+            backgroundColor: 'transparent',
+            borderWidth: 1,
+            borderDash: [3, 3],
+            pointRadius: 0,
+            tension: 0,
+            yAxisID: 'yPrice',
+            spanGaps: true,
+            order: 1,
+          },
+          // 4. Cumulative energy-market revenue — stepped line, rightmost axis
+          {
+            label: 'Cum. Energy Mkt Rev ($)',
             data: revenueData,
+            type: 'line',
             borderColor: revColor,
             backgroundColor: 'transparent',
             borderWidth: 1.5,
-            borderDash: [4, 3],
+            borderDash: [6, 3],
             pointRadius: 0,
-            fill: false,
-            tension: 0.2,
-            yAxisID: 'y1',
+            stepped: true,
+            tension: 0,
+            yAxisID: 'yRev',
             spanGaps: true,
+            order: 1,
           },
         ],
       },
@@ -749,56 +853,87 @@
         plugins: {
           legend: { display: false },
           tooltip: {
-            backgroundColor: '#0f0e0c',
+            backgroundColor: '#111827',
             titleFont: { family: "'IBM Plex Mono', monospace", size: 10 },
             bodyFont:  { family: "'IBM Plex Mono', monospace", size: 11 },
-            padding: 10,
+            padding: 12,
+            filter: item => item.parsed.y !== 0 || item.datasetIndex >= 2,
             callbacks: {
-              title: (items) => {
+              title: items => {
                 const idx = items[0]?.dataIndex;
-                return idx !== undefined ? fmtTooltipTime(b.data[Math.round(idx * b.data.length / rows.length)] ?.ts ?? rows[idx]?.ts ?? '') : '';
+                return idx !== undefined ? fmtTooltipTime(rows[idx]?.ts ?? '') : '';
               },
-              label: (ctx) => {
+              label: ctx => {
                 const v = ctx.parsed.y;
-                if (ctx.datasetIndex === 0) return ` Discharge: ${v !== null ? v.toFixed(1) + ' MW' : '—'}`;
-                if (ctx.datasetIndex === 1) return ` Charge:    ${v !== null ? Math.abs(v).toFixed(1) + ' MW' : '—'}`;
-                if (ctx.datasetIndex === 2) return ` Cum. Rev:  ${fmtRevenue(v)}`;
-                return ctx.formattedValue;
+                if (ctx.datasetIndex === 0 && v > 0) return ` ▲ Discharge: ${v.toFixed(1)} MW`;
+                if (ctx.datasetIndex === 1 && v < 0) return ` ▼ Charge:    ${Math.abs(v).toFixed(1)} MW`;
+                if (ctx.datasetIndex === 2) return ` NSW1 Price: ${fmtPrice(v)}`;
+                if (ctx.datasetIndex === 3) {
+                  const row = rows[ctx.dataIndex];
+                  const intervalRev = row ? fmtRevenue(row.netMV) : '—';
+                  return [
+                    ` Cum. Rev (energy only): ${fmtRevenue(v)}`,
+                    ` Interval P&L: ${intervalRev}`,
+                  ];
+                }
+                return null;
               },
+              afterBody: () => ['', ' ⓘ Revenue = energy market only (FCAS excluded)'],
             },
           },
         },
         scales: {
           x: {
-            type: 'category',
-            grid: { color: '#e8e4dc', lineWidth: 0.6 },
+            grid: { color: CHART_COLORS.gridLine, lineWidth: 0.5 },
             ticks: {
-              color: '#9c9690',
+              color: '#9ca3af',
               font: { family: "'IBM Plex Mono', monospace", size: 9 },
               maxTicksLimit: 9,
               maxRotation: 0,
-              callback(val, idx) {
-                const step = Math.max(1, Math.floor(this.chart.data.labels.length / 9));
-                return idx % step === 0 ? this.getLabelForValue(val) : '';
-              },
+              autoSkip: true,
             },
           },
+          // Left: Power (MW) — discharge positive, charge negative
           y: {
             position: 'left',
-            grid: { color: '#e8e4dc', lineWidth: 0.6 },
+            stacked: false,
+            grid: { color: CHART_COLORS.gridLine, lineWidth: 0.5 },
             ticks: {
-              color: '#5c5751',
+              color: '#6b7280',
               font: { family: "'IBM Plex Mono', monospace", size: 9 },
-              callback: v => v + ' MW',
+              callback: v => {
+                const abs = Math.abs(v);
+                return (v < 0 ? '▼ ' : v > 0 ? '▲ ' : '') + abs + ' MW';
+              },
             },
             title: {
               display: true,
-              text: 'Power (MW)  ▲ discharge  ▼ charge',
-              color: '#5c5751',
+              text: '▲ Discharge MW  /  ▼ Charge MW',
+              color: '#6b7280',
               font: { family: "'IBM Plex Sans', sans-serif", size: 8.5, weight: '500' },
             },
           },
-          y1: {
+          // Right 1: NSW1 spot price
+          yPrice: {
+            position: 'right',
+            grid: { drawOnChartArea: false },
+            ticks: {
+              color: '#9ca3af',
+              font: { family: "'IBM Plex Mono', monospace", size: 9 },
+              callback: v => {
+                if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(0)}k`;
+                return `$${v.toFixed(0)}`;
+              },
+            },
+            title: {
+              display: true,
+              text: 'NSW1 Price ($/MWh)',
+              color: '#9ca3af',
+              font: { family: "'IBM Plex Sans', sans-serif", size: 8.5, weight: '500' },
+            },
+          },
+          // Right 2: Cumulative energy market revenue
+          yRev: {
             position: 'right',
             grid: { drawOnChartArea: false },
             ticks: {
@@ -812,7 +947,7 @@
             },
             title: {
               display: true,
-              text: 'Cumulative Revenue ($AUD)',
+              text: 'Cum. Energy Rev ($)  [FCAS excl.]',
               color: revColor,
               font: { family: "'IBM Plex Sans', sans-serif", size: 8.5, weight: '500' },
             },
@@ -830,12 +965,12 @@
     try {
       const data = await loadData();
 
-      // Update header
       document.getElementById('dateRange').textContent =
-        `${fmtDate(data.dateStart)} → ${fmtDate(data.dateEnd)} AEST`;
+        `${fmtDate(data.dateStart)} → ${fmtDate(data.dateEnd)} AEST · 5-min intervals`;
       document.getElementById('fetchedAt').textContent =
         `Fetched ${new Date(data.fetchedAt).toLocaleString('en-AU', { timeZone: NEM_TZ })} AEST`;
       document.getElementById('legend').style.display = 'flex';
+      document.getElementById('fcasNote').style.display = 'block';
 
       if (!data.batteries || !data.batteries.length) {
         mainEl.innerHTML = `
@@ -847,13 +982,12 @@
         return;
       }
 
-      // Fleet summary
       updateFleetSummary(data.batteries);
 
-      // Build cards
+      const priceMap = buildPriceMap(data.nsw1Price);
+
       const grid = document.createElement('div');
       grid.className = 'bess-grid';
-
       for (const b of data.batteries) {
         grid.appendChild(renderCard(b));
       }
@@ -861,10 +995,9 @@
       mainEl.innerHTML = '';
       mainEl.appendChild(grid);
 
-      // Build charts after DOM is ready
       requestAnimationFrame(() => {
         for (const b of data.batteries) {
-          buildChart(b);
+          buildChart(b, priceMap);
         }
       });
 
@@ -874,8 +1007,9 @@
         <div class="error-screen">
           <h3>⚠ Unable to Load Battery Data</h3>
           <p>${err.message}</p>
-          <p style="margin-top:10px;color:#7f1d1d;font-size:0.78rem;">
-            Ensure <code>OPENELECTRICITY_API_KEY</code> is set and <code>openelectricity</code> package is installed.
+          <p style="margin-top:10px;font-size:0.78rem;">
+            Ensure <code>OPENELECTRICITY_API_KEY</code> is set and the
+            <code>openelectricity</code> package is installed.
           </p>
           <button class="retry-btn" onclick="location.reload()">↺ Retry</button>
         </div>`;
@@ -884,6 +1018,7 @@
 
   init();
 </script>
+
 
 
     <!-- ═══ Global Cache Status Bar (injected by caching system) ═══════════════ -->
