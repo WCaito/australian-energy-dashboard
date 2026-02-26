@@ -32,6 +32,9 @@
     },
     "api/bess-nsw.js": {
       "maxDuration": 60
+    },
+    "api/analysis.js": {
+      "maxDuration": 60
     }
   },
   "crons": [
