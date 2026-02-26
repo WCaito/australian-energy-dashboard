@@ -204,7 +204,7 @@ function computeIntraday(records) {
     const b = bkt[h];
     const fix = v => v !== null ? +v.toFixed(2) : null;
     return {
-      hour,
+      hour: h,
       overall:     fix(mean(b.overall)),
       summer:      fix(mean(b.summer)),
       autumn:      fix(mean(b.autumn)),
@@ -213,7 +213,7 @@ function computeIntraday(records) {
       p25_overall: fix(pct(b.overall, 25)),
       p75_overall: fix(pct(b.overall, 75)),
     };
-  }).map((d, i) => ({ ...d, hour: i }));
+  });
 }
 
 // ── Summary stats ───────────────────────────────────────────────────────────────
