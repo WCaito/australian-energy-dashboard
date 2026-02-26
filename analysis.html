@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Market Analysis — Australian Energy Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+  /* ── Reset + tokens ────────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:        #ffffff;
+    --bg-subtle: #f9fafb;
+    --border:    #e5e7eb;
+    --text-1:    #111827;
+    --text-2:    #6b7280;
+    --text-3:    #9ca3af;
+    --accent:    #2563eb;
+    --green:     #059669;
+    --red:       #dc2626;
+    --amber:     #d97706;
+    --purple:    #7c3aed;
+  }
+  body {
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text-1);
+    min-height: 100vh;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: 52px;
+  }
+  .container { max-width: 1280px; margin: 0 auto; padding: 0 28px 80px; }
+
+  /* ── Header ────────────────────────────────────────────────────────────── */
+  header {
+    padding: 44px 0 32px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 48px;
+  }
+  .header-inner {
+    display: flex; align-items: flex-start;
+    justify-content: space-between; gap: 32px; flex-wrap: wrap;
+  }
+  h1 {
+    font-family: 'IBM Plex Serif', Georgia, serif;
+    font-size: 2.125rem; font-weight: 600;
+    line-height: 1.2; letter-spacing: -0.02em; color: var(--text-1);
+    margin-bottom: 8px;
+  }
+  .subtitle { font-size: 0.9375rem; color: var(--text-2); max-width: 520px; line-height: 1.5; }
+  .header-nav { display: flex; gap: 6px; flex-wrap: wrap; align-items: flex-start; padding-top: 6px; }
+  .nav-link {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 7px 15px; font-size: 0.8125rem; font-weight: 500;
+    text-decoration: none; border: 1px solid var(--border);
+    color: var(--text-2); background: var(--bg);
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+    white-space: nowrap; font-family: 'IBM Plex Sans', sans-serif;
+  }
+  .nav-link:hover { border-color: var(--text-1); color: var(--text-1); }
+  .nav-link.active { background: var(--text-1); border-color: var(--text-1); color: #fff; }
+  .nav-link.active:hover { background: var(--accent); border-color: var(--accent); }
+
+  /* ── Controls strip ────────────────────────────────────────────────────── */
+  .controls-strip {
+    display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end;
+    margin-bottom: 40px; padding: 20px 24px;
+    background: var(--bg-subtle); border: 1px solid var(--border);
+  }
+  .ctrl-group { display: flex; flex-direction: column; gap: 5px; }
+  label {
+    font-size: 0.6875rem; font-weight: 600; color: var(--text-3);
+    text-transform: uppercase; letter-spacing: 0.07em;
+  }
+  select {
+    padding: 8px 32px 8px 12px; border: 1px solid var(--border);
+    background: var(--bg); font-size: 0.875rem;
+    font-family: 'IBM Plex Sans', sans-serif; color: var(--text-1);
+    cursor: pointer; min-width: 180px; appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7280' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 12px center;
+    transition: border-color 0.15s;
+  }
+  select:focus { outline: none; border-color: var(--accent); }
+  .load-btn {
+    padding: 8px 22px; background: var(--text-1); color: #fff; border: none;
+    font-family: 'IBM Plex Sans', sans-serif; font-weight: 500;
+    font-size: 0.875rem; cursor: pointer; transition: background 0.15s;
+    align-self: flex-end;
+  }
+  .load-btn:hover { background: var(--accent); }
+  .load-btn:disabled { background: var(--text-3); cursor: not-allowed; }
+
+  /* ── KPI rail ──────────────────────────────────────────────────────────── */
+  .kpi-rail {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1px; background: var(--border);
+    border: 1px solid var(--border); margin-bottom: 56px;
+  }
+  .kpi-cell { background: var(--bg); padding: 20px 20px 16px; }
+  .kpi-lbl {
+    font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--text-3); margin-bottom: 6px; font-weight: 500;
+  }
+  .kpi-val {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 1.1875rem; font-weight: 500; color: var(--text-1); line-height: 1.2;
+  }
+  .kpi-val.red    { color: var(--red); }
+  .kpi-val.amber  { color: var(--amber); }
+  .kpi-val.green  { color: var(--green); }
+  .kpi-val.purple { color: var(--purple); }
+  .kpi-sub { font-size: 0.6875rem; color: var(--text-3); margin-top: 4px; font-family: 'IBM Plex Mono', monospace; }
+
+  /* ── Section ───────────────────────────────────────────────────────────── */
+  .section { margin-bottom: 72px; }
+  .section-title {
+    font-family: 'IBM Plex Serif', Georgia, serif;
+    font-size: 1.5rem; font-weight: 600; color: var(--text-1);
+    letter-spacing: -0.01em; margin-bottom: 6px;
+  }
+  .section-desc {
+    font-size: 0.875rem; color: var(--text-2); line-height: 1.65;
+    max-width: 720px; margin-bottom: 24px;
+  }
+
+  /* ── Insight triptych ──────────────────────────────────────────────────── */
+  .triptych {
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    gap: 1px; background: var(--border);
+    border: 1px solid var(--border); margin-bottom: 20px;
+  }
+  @media (max-width: 900px) { .triptych { grid-template-columns: 1fr; } }
+  .tri-cell { background: var(--bg-subtle); padding: 18px 20px; }
+  .tri-label {
+    font-size: 0.6875rem; font-weight: 600; color: var(--text-2);
+    text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px;
+  }
+  .tri-value {
+    font-family: 'IBM Plex Mono', monospace; font-size: 1.0625rem;
+    font-weight: 500; color: var(--text-1); margin-bottom: 5px;
+  }
+  .tri-value.red    { color: var(--red); }
+  .tri-value.amber  { color: var(--amber); }
+  .tri-value.green  { color: var(--green); }
+  .tri-value.blue   { color: var(--accent); }
+  .tri-value.purple { color: var(--purple); }
+  .tri-desc { font-size: 0.8125rem; color: var(--text-2); line-height: 1.55; }
+
+  /* ── Chart card ────────────────────────────────────────────────────────── */
+  .chart-card { border: 1px solid var(--border); background: var(--bg); }
+  .chart-card-head {
+    padding: 18px 24px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: flex-start;
+    justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  }
+  .chart-card-title {
+    font-family: 'IBM Plex Serif', Georgia, serif;
+    font-size: 1.0625rem; font-weight: 600; color: var(--text-1); margin-bottom: 3px;
+  }
+  .chart-card-meta { font-size: 0.75rem; color: var(--text-3); font-family: 'IBM Plex Mono', monospace; }
+  .chart-legend { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--text-2); }
+  .legend-swatch { width: 18px; height: 3px; border-radius: 1px; flex-shrink: 0; }
+  .legend-band {
+    width: 18px; height: 8px; border-radius: 2px;
+    opacity: 0.35; flex-shrink: 0;
+  }
+  .chart-body { padding: 24px 20px 20px; position: relative; height: 440px; }
+  .chart-foot {
+    display: flex; gap: 20px; flex-wrap: wrap;
+    padding: 11px 24px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-subtle);
+    font-size: 0.75rem; color: var(--text-2);
+  }
+  .chart-foot-item { display: flex; align-items: center; gap: 7px; }
+  .foot-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ── Interpretation panel ──────────────────────────────────────────────── */
+  .interp {
+    background: var(--bg-subtle); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    padding: 18px 22px; margin-top: 20px;
+    font-size: 0.875rem; line-height: 1.7; color: var(--text-2);
+  }
+  .interp strong { color: var(--text-1); font-weight: 600; }
+  .interp p + p { margin-top: 10px; }
+
+  /* ── Loading / error ───────────────────────────────────────────────────── */
+  .spinner {
+    width: 32px; height: 32px; border: 2px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-screen {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; padding: 80px 24px; text-align: center;
+    gap: 14px; color: var(--text-2);
+  }
+  .loading-msg  { font-size: 0.9rem; }
+  .loading-sub  { font-size: 0.8125rem; color: var(--text-3); font-family: 'IBM Plex Mono', monospace; }
+  .error-screen { padding: 48px 24px; text-align: center; color: var(--red); font-size: 0.9rem; }
+  .error-screen p { margin-top: 8px; color: var(--text-2); font-size: 0.8125rem; font-family: 'IBM Plex Mono', monospace; }
+  .retry-btn {
+    display: inline-block; margin-top: 16px; padding: 8px 20px;
+    background: var(--text-1); color: #fff; border: none; cursor: pointer;
+    font-family: inherit; font-size: 0.875rem; transition: background 0.15s;
+  }
+  .retry-btn:hover { background: var(--accent); }
+
+  /* ── Cache bar ─────────────────────────────────────────────────────────── */
+  #cacheBar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: rgba(255,255,255,0.97); backdrop-filter: blur(8px);
+    border-top: 1px solid var(--border); padding: 10px 28px;
+    display: flex; align-items: center; gap: 12px;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 0.75rem; color: var(--text-2); z-index: 999;
+  }
+  .cb-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--text-3); flex-shrink: 0; transition: background 0.3s;
+  }
+  .cb-dot.fresh { background: var(--green); }
+  .cb-dot.stale { background: #f59e0b; }
+  .cb-dot.err   { background: var(--red); }
+  .cb-text { flex: 1; }
+  .cb-btn {
+    padding: 5px 14px; background: var(--text-1); color: #fff; border: none;
+    cursor: pointer; font-size: 0.75rem; font-family: inherit; font-weight: 500;
+    flex-shrink: 0; transition: background 0.15s;
+  }
+  .cb-btn:hover { background: var(--accent); }
+  .cb-btn:disabled { background: var(--text-3); cursor: not-allowed; }
+
+  /* ── Footer ────────────────────────────────────────────────────────────── */
+  .page-footer {
+    margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--border);
+    font-size: 0.75rem; color: var(--text-3);
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+  .page-footer a { color: var(--text-2); text-decoration: underline; text-underline-offset: 2px; }
+
+  @media (max-width: 768px) {
+    .container { padding: 0 16px 80px; }
+    h1 { font-size: 1.75rem; }
+    .header-inner { flex-direction: column; gap: 20px; }
+    .chart-body { height: 300px; }
+  }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <div class="header-inner">
+      <div>
+        <h1>Market Analysis</h1>
+        <p class="subtitle">Structural price analytics for commercial NEM decision-making — intraday shape, price duration curves and arbitrage metrics</p>
+      </div>
+      <nav class="header-nav">
+        <a href="australian-energy-market.html" class="nav-link">Live Prices</a>
+        <a href="historical-data.html"          class="nav-link">Historical</a>
+        <a href="facility-data.html"            class="nav-link">Generators</a>
+        <a href="bess-nsw.html"                 class="nav-link">NSW Batteries</a>
+        <a href="analysis.html"                 class="nav-link active">Analysis</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Controls -->
+  <div class="controls-strip">
+    <div class="ctrl-group">
+      <label for="selRegion">Region</label>
+      <select id="selRegion">
+        <option value="NSW1">New South Wales (NSW1)</option>
+        <option value="VIC1">Victoria (VIC1)</option>
+        <option value="QLD1">Queensland (QLD1)</option>
+        <option value="SA1">South Australia (SA1)</option>
+        <option value="TAS1">Tasmania (TAS1)</option>
+      </select>
+    </div>
+    <div class="ctrl-group">
+      <label for="selYear">Period</label>
+      <select id="selYear">
+        <option value="trailing12">Trailing 12 months</option>
+        <option value="2025">Calendar year 2025</option>
+        <option value="2024">Calendar year 2024</option>
+        <option value="2023">Calendar year 2023</option>
+      </select>
+    </div>
+    <button class="load-btn" id="loadBtn" onclick="loadAnalysis()">Load Analysis</button>
+  </div>
+
+  <!-- KPI rail -->
+  <div class="kpi-rail" id="kpiRail" style="display:none">
+    <div class="kpi-cell">
+      <div class="kpi-lbl">Avg Price</div>
+      <div class="kpi-val" id="kAvg">—</div>
+      <div class="kpi-sub" id="kPeriod"></div>
+    </div>
+    <div class="kpi-cell">
+      <div class="kpi-lbl">Median Price</div>
+      <div class="kpi-val" id="kMed">—</div>
+      <div class="kpi-sub">50th percentile</div>
+    </div>
+    <div class="kpi-cell">
+      <div class="kpi-lbl">P99 Price</div>
+      <div class="kpi-val amber" id="kP99">—</div>
+      <div class="kpi-sub">top 1% of intervals</div>
+    </div>
+    <div class="kpi-cell">
+      <div class="kpi-lbl">Negative Hrs</div>
+      <div class="kpi-val green" id="kNegH">—</div>
+      <div class="kpi-sub" id="kNegP"></div>
+    </div>
+    <div class="kpi-cell">
+      <div class="kpi-lbl">High-Price Hrs</div>
+      <div class="kpi-val amber" id="kHiH">—</div>
+      <div class="kpi-sub">above $300/MWh</div>
+    </div>
+    <div class="kpi-cell">
+      <div class="kpi-lbl">Extreme Hrs</div>
+      <div class="kpi-val purple" id="kExH">—</div>
+      <div class="kpi-sub">above $1,000/MWh</div>
+    </div>
+    <div class="kpi-cell">
+      <div class="kpi-lbl">IQR Spread</div>
+      <div class="kpi-val green" id="kIQR">—</div>
+      <div class="kpi-sub">P75 − P25 · arb proxy</div>
+    </div>
+  </div>
+
+  <!-- Dynamic content -->
+  <div id="content">
+    <div class="loading-screen">
+      <div class="spinner"></div>
+      <div class="loading-msg" id="loadMsg">Loading NSW1 market analysis…</div>
+      <div class="loading-sub">Fetching AEMO Price &amp; Demand CSV data · ~10 seconds on first load</div>
+    </div>
+  </div>
+
+  <footer class="page-footer">
+    <span>Data: <a href="https://www.aemo.com.au" target="_blank" rel="noopener">AEMO</a> Price &amp; Demand CSV · 30-min settlement intervals · NEM</span>
+    <span id="fetchedAt"></span>
+  </footer>
+</div>
+
+<!-- Cache bar -->
+<div id="cacheBar">
+  <div class="cb-dot" id="cbDot"></div>
+  <div class="cb-text" id="cbText">Loading…</div>
+  <button class="cb-btn" id="cbRefresh" onclick="loadAnalysis(true)">↺ Refresh</button>
+</div>
+
+<script>
+'use strict';
+
+const API = window.location.protocol === 'file:'
+  ? 'http://localhost:3000'
+  : window.location.origin;
+
+/* ── Region / colour palette ──────────────────────────────────────────────── */
+const REGION_COLOR = {
+  NSW1: '#2563eb', VIC1: '#7c3aed',
+  QLD1: '#dc2626', SA1:  '#059669', TAS1: '#ea580c',
+};
+
+/* ── Chart registry ───────────────────────────────────────────────────────── */
+const _charts = {};
+function destroyChart(id) { if (_charts[id]) { _charts[id].destroy(); delete _charts[id]; } }
+
+/* ── Number helpers ───────────────────────────────────────────────────────── */
+function fP(v) {                          // price → "$123/MWh" or "$1.2k/MWh"
+  if (v == null) return '—';
+  const n = +v;
+  if (Math.abs(n) >= 1000) return `$${(n/1000).toFixed(1)}k/MWh`;
+  return `$${n.toFixed(0)}/MWh`;
+}
+function fH(v) { return v == null ? '—' : (+v).toFixed(0) + ' hrs'; }
+function fPct(v) { return v == null ? '—' : (+v).toFixed(2) + '%'; }
+function fHour(h) {
+  if (h === 0) return '12am'; if (h === 12) return '12pm';
+  return h < 12 ? h + 'am' : (h-12) + 'pm';
+}
+
+/* ── KPI rail population ──────────────────────────────────────────────────── */
+function populateKPIs(s, periodLabel) {
+  document.getElementById('kAvg').textContent  = fP(s.avgPrice);
+  document.getElementById('kPeriod').textContent = periodLabel;
+  document.getElementById('kMed').textContent  = fP(s.medianPrice);
+  document.getElementById('kP99').textContent  = fP(s.p99);
+  document.getElementById('kNegH').textContent = fH(s.negHours);
+  document.getElementById('kNegP').textContent = fPct(s.negPct) + ' of intervals';
+  document.getElementById('kHiH').textContent  = fH(s.hiHours);
+  document.getElementById('kExH').textContent  = fH(s.exHours);
+  document.getElementById('kIQR').textContent  = fP(s.iqrSpread);
+  document.getElementById('kpiRail').style.display = 'grid';
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SECTION 1: INTRADAY PRICE SHAPE
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Compute intraday business insights from 24-point hourly array.
+ * Returns best 4-hour charge window, best 2-hour discharge window,
+ * implied daily spread, and duck-curve metrics.
+ */
+function computeIntradayInsights(shape) {
+  // Guard: we need at least some non-null overall values
+  const valid = shape.filter(d => d.overall !== null);
+  if (valid.length < 4) return null;
+
+  // Cheapest single hour overall
+  const byPrice = [...valid].sort((a,b) => a.overall - b.overall);
+  const cheapest    = byPrice[0];
+  const mostExp     = byPrice[byPrice.length - 1];
+
+  // Best 4-consecutive-hour average charging window (lowest avg)
+  let bestChargeAvg = Infinity, bestChargeStart = 0;
+  for (let h = 0; h < 24; h++) {
+    const vals = [0,1,2,3].map(i => shape[(h+i)%24]?.overall).filter(v => v !== null);
+    if (vals.length < 4) continue;
+    const a = vals.reduce((s,v)=>s+v,0) / 4;
+    if (a < bestChargeAvg) { bestChargeAvg = a; bestChargeStart = h; }
+  }
+
+  // Best 2-consecutive-hour average discharge window (highest avg)
+  let bestDischargeAvg = -Infinity, bestDischargeStart = 0;
+  for (let h = 0; h < 24; h++) {
+    const vals = [0,1].map(i => shape[(h+i)%24]?.overall).filter(v => v !== null);
+    if (vals.length < 2) continue;
+    const a = vals.reduce((s,v)=>s+v,0) / 2;
+    if (a > bestDischargeAvg) { bestDischargeAvg = a; bestDischargeStart = h; }
+  }
+
+  // Duck depth: how much the midday average (10am-2pm) is below the overnight baseline (1am-4am)
+  const midday = [10,11,12,13].map(h => shape[h]?.overall).filter(v => v !== null);
+  const overnight = [1,2,3,4].map(h => shape[h]?.overall).filter(v => v !== null);
+  const midd = midday.length ? midday.reduce((s,v)=>s+v,0)/midday.length : null;
+  const ovnt = overnight.length ? overnight.reduce((s,v)=>s+v,0)/overnight.length : null;
+  const duckDepth = (midd !== null && ovnt !== null) ? ovnt - midd : null;
+
+  return {
+    cheapestHour: fHour(cheapest.hour),
+    cheapestPrice: cheapest.overall?.toFixed(0),
+    mostExpHour: fHour(mostExp.hour),
+    mostExpPrice: mostExp.overall?.toFixed(0),
+    chargeWindow: `${fHour(bestChargeStart)}–${fHour((bestChargeStart+4)%24)}`,
+    chargeAvg: bestChargeAvg.toFixed(0),
+    dischargeWindow: `${fHour(bestDischargeStart)}–${fHour((bestDischargeStart+2)%24)}`,
+    dischargeAvg: bestDischargeAvg.toFixed(0),
+    impliedSpread: (bestDischargeAvg - bestChargeAvg).toFixed(0),
+    duckDepth: duckDepth !== null ? duckDepth.toFixed(0) : null,
+    fullDaySpread: (mostExp.overall - cheapest.overall).toFixed(0),
+  };
+}
+
+function buildIntradayChart(canvasId, shape, region) {
+  destroyChart(canvasId);
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || !shape?.length) return;
+
+  const labels   = shape.map(d => fHour(d.hour));
+  const overall  = shape.map(d => d.overall);
+  const summer   = shape.map(d => d.summer);
+  const autumn   = shape.map(d => d.autumn);
+  const winter   = shape.map(d => d.winter);
+  const spring   = shape.map(d => d.spring);
+  const p25Band  = shape.map(d => d.p25_overall);
+  const p75Band  = shape.map(d => d.p75_overall);
+
+  _charts[canvasId] = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        /* IQR band — two invisible lines that fill between them */
+        {
+          label: '__p75',
+          data: p75Band,
+          borderWidth: 0, pointRadius: 0, tension: 0.4,
+          borderColor: 'transparent',
+          backgroundColor: 'rgba(17,24,39,0.07)',
+          fill: '+1',
+          order: 20,
+        },
+        {
+          label: '__p25',
+          data: p25Band,
+          borderWidth: 0, pointRadius: 0, tension: 0.4,
+          borderColor: 'transparent',
+          backgroundColor: 'rgba(17,24,39,0.07)',
+          fill: false,
+          order: 20,
+        },
+        /* Season lines */
+        { label:'Summer (DJF)', data:summer, borderColor:'#dc2626', borderWidth:1.5, pointRadius:0, tension:0.4, backgroundColor:'transparent', order:3 },
+        { label:'Autumn (MAM)', data:autumn, borderColor:'#d97706', borderWidth:1.5, pointRadius:0, tension:0.4, backgroundColor:'transparent', order:3 },
+        { label:'Winter (JJA)', data:winter, borderColor:'#2563eb', borderWidth:1.5, pointRadius:0, tension:0.4, backgroundColor:'transparent', order:3 },
+        { label:'Spring (SON)', data:spring, borderColor:'#059669', borderWidth:1.5, pointRadius:0, tension:0.4, backgroundColor:'transparent', order:3 },
+        /* Bold overall average — drawn last so it's on top */
+        {
+          label:'Overall avg',
+          data: overall,
+          borderColor: '#111827', borderWidth: 2.5, pointRadius: 0, tension: 0.4,
+          backgroundColor:'transparent', order:1,
+        },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode:'index', intersect:false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#111827',
+          titleFont: { family:"'IBM Plex Mono',monospace", size:10 },
+          bodyFont:  { family:"'IBM Plex Mono',monospace", size:11 },
+          padding: 12,
+          filter: item => !item.dataset.label.startsWith('__'),
+          callbacks: {
+            title: items => {
+              const h = shape[items[0].dataIndex]?.hour;
+              return `${fHour(h)}  (${h}:00 – ${h}:59 AEST)`;
+            },
+            label: ctx => {
+              if (ctx.dataset.label.startsWith('__')) return null;
+              const v = ctx.parsed.y;
+              if (v == null) return null;
+              const sign = v < 0 ? '−$' : '$';
+              return ` ${ctx.dataset.label}: ${sign}${Math.abs(v).toFixed(0)}/MWh`;
+            },
+            afterBody: items => {
+              const d = shape[items[0].dataIndex];
+              if (!d || d.p25_overall == null) return [];
+              return [` P25–P75 range: $${d.p25_overall.toFixed(0)} – $${d.p75_overall?.toFixed(0)}/MWh`];
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { color:'#e5e7eb', lineWidth:0.5 },
+          ticks: { color:'#9ca3af', font:{ family:"'IBM Plex Mono',monospace", size:9 }, maxRotation:0, autoSkip:true, maxTicksLimit:12 },
+        },
+        y: {
+          grid: { color:'#e5e7eb', lineWidth:0.5 },
+          ticks: {
+            color:'#6b7280',
+            font:{ family:"'IBM Plex Mono',monospace", size:9 },
+            callback: v => v < 0 ? `−$${Math.abs(v)}` : `$${v}`,
+          },
+          title: { display:true, text:'Average Spot Price ($/MWh)', color:'#6b7280', font:{ family:"'IBM Plex Sans',sans-serif", size:10, weight:'500' } },
+        },
+      },
+    },
+    plugins: [{
+      id: 'duckZones',
+      afterDraw(chart) {
+        const { ctx, scales:{ x, y }, chartArea } = chart;
+        if (!chartArea) return;
+
+        /* Annotations use categorical x-axis — must map label index to pixel */
+        const labelToX = label => {
+          const idx = labels.indexOf(label);
+          if (idx === -1) return null;
+          return x.getPixelForValue(idx);
+        };
+
+        ctx.save();
+
+        /* ── Solar trough zone (10am–2pm) ── */
+        const xTroughL = labelToX('10am');
+        const xTroughR = labelToX('2pm');
+        if (xTroughL && xTroughR) {
+          ctx.fillStyle = 'rgba(251,191,36,0.07)';
+          ctx.fillRect(xTroughL, chartArea.top, xTroughR - xTroughL, chartArea.bottom - chartArea.top);
+          ctx.fillStyle = '#b45309';
+          ctx.font = "9px 'IBM Plex Mono',monospace";
+          ctx.textAlign = 'center';
+          ctx.fillText('▼ Solar trough', (xTroughL+xTroughR)/2, chartArea.top + 13);
+        }
+
+        /* ── Evening peak zone (5pm–8pm) ── */
+        const xPeakL = labelToX('5pm');
+        const xPeakR = labelToX('8pm');
+        if (xPeakL && xPeakR) {
+          ctx.fillStyle = 'rgba(239,68,68,0.06)';
+          ctx.fillRect(xPeakL, chartArea.top, xPeakR - xPeakL, chartArea.bottom - chartArea.top);
+          ctx.fillStyle = '#b91c1c';
+          ctx.font = "9px 'IBM Plex Mono',monospace";
+          ctx.textAlign = 'center';
+          ctx.fillText('▲ Evening peak', (xPeakL+xPeakR)/2, chartArea.top + 13);
+        }
+
+        /* ── $0 reference line ── */
+        const zY = y.getPixelForValue(0);
+        if (zY >= chartArea.top && zY <= chartArea.bottom) {
+          ctx.strokeStyle = 'rgba(5,150,105,0.5)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4,3]);
+          ctx.beginPath(); ctx.moveTo(chartArea.left, zY); ctx.lineTo(chartArea.right, zY); ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = '#059669';
+          ctx.font = "9px 'IBM Plex Mono',monospace";
+          ctx.textAlign = 'left';
+          ctx.fillText('$0/MWh', chartArea.left + 4, zY - 4);
+        }
+
+        ctx.restore();
+      },
+    }],
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SECTION 2: PRICE DURATION CURVE
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+function buildPDCChart(canvasId, pdc, stats, region) {
+  destroyChart(canvasId);
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || !pdc?.length) return;
+
+  const regionColor = REGION_COLOR[region] || '#2563eb';
+  const labels  = pdc.map(p => p.pct);
+  const prices  = pdc.map(p => p.price);
+
+  // Display cap: clip at $5,000 so the chart isn't squashed by $15k events
+  // Actual values still shown in tooltips
+  const DISPLAY_CAP = 5000;
+  const disp = prices.map(p => p > DISPLAY_CAP ? DISPLAY_CAP : p);
+
+  _charts[canvasId] = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: `${region} spot price`,
+        data: disp,
+        borderColor: regionColor,
+        backgroundColor: ctx => {
+          const { ctx: c, chartArea } = ctx.chart;
+          if (!chartArea) return 'transparent';
+          const g = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+          g.addColorStop(0,    'rgba(220,38,38,0.18)');    // top = extreme, red
+          g.addColorStop(0.25, 'rgba(37,99,235,0.10)');    // middle = normal, accent
+          g.addColorStop(1,    'rgba(5,150,105,0.06)');    // bottom = negative tail, green
+          return g;
+        },
+        fill: true,
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.2,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode:'index', intersect:false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#111827',
+          titleFont: { family:"'IBM Plex Mono',monospace", size:10 },
+          bodyFont:  { family:"'IBM Plex Mono',monospace", size:11 },
+          padding: 12,
+          callbacks: {
+            title: items => {
+              const pct = +items[0].label;
+              return `Top ${pct.toFixed(1)}% of intervals  (${(pct*0.5).toFixed(1)} hrs/week above this)`;
+            },
+            label: ctx => {
+              const raw = prices[ctx.dataIndex];
+              let tag = '';
+              if (raw >= 1000)      tag = ' [EXTREME >$1k]';
+              else if (raw >= 300)  tag = ' [HIGH >$300]';
+              else if (raw < 0)     tag = ' [NEGATIVE]';
+              const disp = raw > DISPLAY_CAP ? `$${(raw/1000).toFixed(1)}k` :
+                           raw < 0            ? `−$${Math.abs(raw).toFixed(0)}` :
+                                                `$${raw.toFixed(0)}`;
+              return ` Price: ${disp}/MWh${tag}`;
+            },
+            afterBody: items => {
+              const pct = +items[0].label;
+              const lines = [];
+              // HIGH-PRICE ZONE: low pct (left of chart = expensive)
+              if (pct <= (stats.exPct + stats.hiPct)) {
+                lines.push(` ← High-price zone: top ${(stats.exPct+stats.hiPct).toFixed(1)}% of time`);
+              }
+              // NEGATIVE ZONE: high pct (right of chart = cheap/negative)
+              if (pct >= 100 - stats.negPct) {
+                lines.push(` ← Negative-price zone: bottom ${stats.negPct.toFixed(1)}% of time`);
+              }
+              return lines;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          type: 'linear', min: 0, max: 100,
+          grid: { color:'#e5e7eb', lineWidth:0.5 },
+          ticks: {
+            color:'#9ca3af', font:{ family:"'IBM Plex Mono',monospace", size:9 },
+            callback: v => v + '%', stepSize: 10,
+          },
+          title: {
+            display: true,
+            text: '←  % of all intervals with spot price at or above this level',
+            color:'#6b7280', font:{ family:"'IBM Plex Sans',sans-serif", size:10, weight:'500' },
+          },
+        },
+        y: {
+          grid: { color:'#e5e7eb', lineWidth:0.5 },
+          ticks: {
+            color:'#6b7280', font:{ family:"'IBM Plex Mono',monospace", size:9 },
+            callback: v => v >= 1000 ? `$${(v/1000).toFixed(0)}k` : v < 0 ? `−$${Math.abs(v)}` : `$${v}`,
+          },
+          title: { display:true, text:'Spot Price ($/MWh) · capped at $5k for display', color:'#6b7280', font:{ family:"'IBM Plex Sans',sans-serif", size:10, weight:'500' } },
+        },
+      },
+    },
+    plugins: [{
+      id: 'pdcZones',
+      afterDraw(chart) {
+        const { ctx, scales:{ x, y }, chartArea } = chart;
+        if (!chartArea) return;
+
+        ctx.save();
+
+        /* ── Shade extreme zone (top of y-axis) ── */
+        const yEx = y.getPixelForValue(1000);
+        if (yEx > chartArea.top) {
+          ctx.fillStyle = 'rgba(220,38,38,0.04)';
+          ctx.fillRect(chartArea.left, chartArea.top, chartArea.right - chartArea.left, Math.min(yEx, chartArea.bottom) - chartArea.top);
+        }
+
+        /* ── Shade negative zone (bottom of y-axis) ── */
+        const yZero = y.getPixelForValue(0);
+        if (yZero < chartArea.bottom) {
+          ctx.fillStyle = 'rgba(5,150,105,0.04)';
+          ctx.fillRect(chartArea.left, Math.max(yZero, chartArea.top), chartArea.right - chartArea.left, chartArea.bottom - Math.max(yZero, chartArea.top));
+        }
+
+        /* ── Reference lines ── */
+        const refs = [
+          { v:0,    color:'#059669', label:'$0/MWh',       dash:[4,3] },
+          { v:300,  color:'#d97706', label:'$300/MWh',      dash:[4,3] },
+          { v:1000, color:'#dc2626', label:'$1,000/MWh',    dash:[4,3] },
+          { v:DISPLAY_CAP, color:'#7c3aed', label:'$5,000/MWh', dash:[2,4] },
+        ];
+        for (const ref of refs) {
+          const yp = y.getPixelForValue(ref.v);
+          if (yp < chartArea.top || yp > chartArea.bottom) continue;
+          ctx.strokeStyle = ref.color;
+          ctx.lineWidth   = 1;
+          ctx.setLineDash(ref.dash);
+          ctx.beginPath(); ctx.moveTo(chartArea.left, yp); ctx.lineTo(chartArea.right, yp); ctx.stroke();
+          ctx.fillStyle   = ref.color;
+          ctx.font        = "9px 'IBM Plex Mono',monospace";
+          ctx.textAlign   = 'right';
+          ctx.setLineDash([]);
+          ctx.fillText(ref.label, chartArea.right - 4, yp - 3);
+        }
+
+        /* ── High-price threshold marker on x-axis ── */
+        // The high-price zone ends at x = (exPct + hiPct)% from the left
+        const hiPctBoundary = stats.exPct + stats.hiPct;
+        const xHi = x.getPixelForValue(hiPctBoundary);
+        if (xHi > chartArea.left && xHi < chartArea.right) {
+          ctx.strokeStyle = 'rgba(217,119,6,0.4)';
+          ctx.lineWidth   = 1;
+          ctx.setLineDash([3,3]);
+          ctx.beginPath(); ctx.moveTo(xHi, chartArea.top); ctx.lineTo(xHi, chartArea.bottom); ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle   = '#d97706';
+          ctx.font        = "9px 'IBM Plex Mono',monospace";
+          ctx.textAlign   = 'center';
+          ctx.fillText(`${hiPctBoundary.toFixed(1)}% high-price`, xHi, chartArea.bottom + 12);
+        }
+
+        /* ── Negative-price threshold marker on x-axis ── */
+        const negBoundary = 100 - stats.negPct;
+        const xNeg = x.getPixelForValue(negBoundary);
+        if (xNeg > chartArea.left && xNeg < chartArea.right) {
+          ctx.strokeStyle = 'rgba(5,150,105,0.4)';
+          ctx.lineWidth   = 1;
+          ctx.setLineDash([3,3]);
+          ctx.beginPath(); ctx.moveTo(xNeg, chartArea.top); ctx.lineTo(xNeg, chartArea.bottom); ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle   = '#059669';
+          ctx.font        = "9px 'IBM Plex Mono',monospace";
+          ctx.textAlign   = 'center';
+          ctx.fillText(`${stats.negPct.toFixed(1)}% negative`, xNeg, chartArea.bottom + 12);
+        }
+
+        ctx.restore();
+      },
+    }],
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RENDER FULL PAGE CONTENT
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+function renderContent(data) {
+  const s   = data.stats;
+  const reg = data.region;
+  const per = data.periodLabel;
+  const ii  = computeIntradayInsights(data.intradayShape);
+
+  document.getElementById('content').innerHTML = `
+
+    <!-- ══ SECTION 1: INTRADAY PRICE SHAPE ══════════════════════════════════ -->
+    <div class="section">
+      <div class="section-title">Intraday Price Shape</div>
+      <p class="section-desc">
+        Average spot price by hour of day, segmented by Australian season. The "duck curve"
+        — a deep solar midday trough followed by a sharp evening ramp — is the single most
+        commercially important pattern in the modern NEM. It defines daily battery arbitrage
+        strategy, solar PPA capture rates, and demand-response value.
+      </p>
+
+      <div class="triptych">
+        <div class="tri-cell">
+          <div class="tri-label">Optimal Charge Window (4-hr avg)</div>
+          <div class="tri-value green">${ii ? ii.chargeWindow + ' · avg $' + ii.chargeAvg + '/MWh' : '—'}</div>
+          <div class="tri-desc">
+            Cheapest 4-consecutive-hour window on an average day — when solar penetration peaks
+            and prices are at their lowest. Batteries charging here minimise the cost of stored energy
+            and maximise the arbitrage spread.
+          </div>
+        </div>
+        <div class="tri-cell">
+          <div class="tri-label">Optimal Discharge Window (2-hr avg)</div>
+          <div class="tri-value amber">${ii ? ii.dischargeWindow + ' · avg $' + ii.dischargeAvg + '/MWh' : '—'}</div>
+          <div class="tri-desc">
+            Highest-value 2-hour window on an average day — the evening ramp period when solar
+            generation falls and demand peaks. This is when batteries earn the bulk of their
+            energy market arbitrage revenue on typical days.
+          </div>
+        </div>
+        <div class="tri-cell">
+          <div class="tri-label">Implied Daily Arbitrage Spread</div>
+          <div class="tri-value blue">${ii ? '$' + ii.impliedSpread + '/MWh' : '—'}</div>
+          <div class="tri-desc">
+            Discharge avg minus charge avg — proxy for the energy market value of a single daily
+            cycle on an <em>average</em> day. Actual captured revenue varies significantly:
+            individual days with price spikes can be worth 5–50× this amount.
+          </div>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-card-head">
+          <div>
+            <div class="chart-card-title">Average Spot Price by Hour of Day — ${reg}</div>
+            <div class="chart-card-meta">${per} · P25–P75 band shows interquartile spread of hourly prices (shaded grey)</div>
+          </div>
+          <div class="chart-legend">
+            <div class="legend-item"><div class="legend-swatch" style="background:#111827"></div><span>Overall avg</span></div>
+            <div class="legend-item"><div class="legend-swatch" style="background:#dc2626"></div><span>Summer (DJF)</span></div>
+            <div class="legend-item"><div class="legend-swatch" style="background:#d97706"></div><span>Autumn (MAM)</span></div>
+            <div class="legend-item"><div class="legend-swatch" style="background:#2563eb"></div><span>Winter (JJA)</span></div>
+            <div class="legend-item"><div class="legend-swatch" style="background:#059669"></div><span>Spring (SON)</span></div>
+            <div class="legend-item"><div class="legend-band" style="background:#9ca3af"></div><span>P25–P75 band</span></div>
+          </div>
+        </div>
+        <div class="chart-body">
+          <canvas id="intradayCanvas"></canvas>
+        </div>
+        <div class="chart-foot">
+          <div class="chart-foot-item"><div class="foot-dot" style="background:#d97706;opacity:0.7"></div><span>10am–2pm: Solar saturation trough — lowest typical prices</span></div>
+          <div class="chart-foot-item"><div class="foot-dot" style="background:#dc2626;opacity:0.7"></div><span>5pm–8pm: Evening demand peak — highest typical prices</span></div>
+          <div class="chart-foot-item"><div class="foot-dot" style="background:#059669;opacity:0.7"></div><span>$0 dashed line — negative-price threshold</span></div>
+        </div>
+      </div>
+
+      <div class="interp">
+        <p>
+          <strong>How to read this chart:</strong> The bold black line shows the overall average price at each
+          hour. The thinner coloured lines show seasonal breakdowns — in Australia, <strong>spring (green)</strong>
+          typically has the deepest midday trough as high solar output combines with mild weather and low
+          demand. <strong>Winter (blue)</strong> usually shows the smallest trough but the steepest
+          evening ramp as heating demand coincides with solar falloff after 4pm.
+          ${ii ? `For ${reg}, the cheapest typical hour is <strong>${ii.cheapestHour} (avg $${ii.cheapestPrice}/MWh)</strong>
+          and the most expensive is <strong>${ii.mostExpHour} (avg $${ii.mostExpPrice}/MWh)</strong>,
+          a full-day spread of <strong>$${ii.fullDaySpread}/MWh</strong>.` : ''}
+        </p>
+        <p>
+          <strong>The shaded P25–P75 band</strong> is critical for risk assessment: a wide grey band at
+          6–8pm means evening prices are highly unpredictable — sometimes near zero, sometimes extreme.
+          This growing volatility is characteristic of markets with increasing renewable penetration.
+          A battery operator who captures only average prices will substantially underperform one who
+          can identify and optimise around these high-variance windows.
+        </p>
+        <p>
+          <strong>PPA structuring implication:</strong> Solar farms generating into the midday trough
+          earn their lowest revenue precisely when they produce the most. As the trough deepens year-on-year,
+          the "capture rate" (actual $/MWh earned vs. flat price reference) declines for unhedged solar —
+          making fixed-price PPAs increasingly valuable for solar developers and risky for retailers.
+        </p>
+      </div>
+    </div>
+
+    <!-- ══ SECTION 2: PRICE DURATION CURVE ══════════════════════════════════ -->
+    <div class="section">
+      <div class="section-title">Price Duration Curve</div>
+      <p class="section-desc">
+        All ${s.totalIntervals?.toLocaleString()} dispatch intervals for the period ranked from highest to lowest price.
+        The x-axis shows what percentage of time prices were <em>at or above</em> each level.
+        This is the foundational tool of NEM commercial analysis — used for generator investment appraisal,
+        cap contract valuation, battery P90 revenue modelling, and market structure diagnostics.
+      </p>
+
+      <div class="triptych">
+        <div class="tri-cell">
+          <div class="tri-label">High-Price Tail  (&gt;$300/MWh)</div>
+          <div class="tri-value amber">${fPct(s.hiPct)} of time · ${fH(s.hiHours)}</div>
+          <div class="tri-desc">
+            The right-tail of the PDC that determines cap contract value and peaker viability.
+            A gas turbine typically needs prices above $300/MWh for enough hours annually to
+            recover fixed costs. The steeper this portion, the higher cap contract premiums.
+          </div>
+        </div>
+        <div class="tri-cell">
+          <div class="tri-label">Extreme Events  (&gt;$1,000/MWh)</div>
+          <div class="tri-value red">${fPct(s.exPct)} of time · ${fH(s.exHours)}</div>
+          <div class="tri-desc">
+            Rare events that drive disproportionate annual battery and generator revenue.
+            Typically triggered by coal plant outages plus low renewable output.
+            Revenue concentration here is extreme: one extreme day can equal weeks of normal trading.
+          </div>
+        </div>
+        <div class="tri-cell">
+          <div class="tri-label">Negative Prices  (&lt;$0/MWh)</div>
+          <div class="tri-value green">${fPct(s.negPct)} of time · ${fH(s.negHours)}</div>
+          <div class="tri-desc">
+            The negative tail grows as solar penetration increases. Represents BESS charging
+            opportunity (batteries paid to absorb excess energy) and structural merchant risk
+            for solar generators without fixed-price hedging.
+          </div>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-card-head">
+          <div>
+            <div class="chart-card-title">Price Duration Curve — ${reg}</div>
+            <div class="chart-card-meta">${per} · ${s.totalIntervals?.toLocaleString()} 30-min intervals · prices above $5,000 capped for display (hover for actuals)</div>
+          </div>
+          <div class="chart-legend">
+            <div class="legend-item"><div class="legend-swatch" style="background:${REGION_COLOR[reg]||'#2563eb'}"></div><span>Spot price</span></div>
+            <div class="legend-item"><div class="legend-swatch" style="background:#dc2626;opacity:0.5"></div><span>Extreme zone (&gt;$1k)</span></div>
+            <div class="legend-item"><div class="legend-swatch" style="background:#059669;opacity:0.5"></div><span>Negative zone</span></div>
+          </div>
+        </div>
+        <div class="chart-body" style="height:460px">
+          <canvas id="pdcCanvas"></canvas>
+        </div>
+        <div class="chart-foot">
+          <div class="chart-foot-item"><div class="foot-dot" style="background:#059669"></div><span>$0 — negative-price threshold (below = BESS charging opportunity)</span></div>
+          <div class="chart-foot-item"><div class="foot-dot" style="background:#d97706"></div><span>$300 — high-price / cap contract strike</span></div>
+          <div class="chart-foot-item"><div class="foot-dot" style="background:#dc2626"></div><span>$1,000 — extreme event threshold</span></div>
+          <div class="chart-foot-item"><div class="foot-dot" style="background:#7c3aed"></div><span>$5,000 — display cap (market ceiling is $15,100/MWh)</span></div>
+        </div>
+      </div>
+
+      <div class="interp">
+        <p>
+          <strong>How to read this chart:</strong> Start at the <em>left edge</em> (0%) — that is the
+          highest price recorded in the period. Moving right, prices decrease monotonically. At 50% you reach
+          the <strong>median price of ${fP(s.medianPrice)}</strong>: half of all hours were cheaper and half
+          more expensive. At 90% on the x-axis, only the highest 10% of prices remain —
+          the P90 threshold is <strong>${fP(s.p90)}</strong>.
+          Dashed vertical markers show exactly where the high-price and negative-price zones begin.
+        </p>
+        <p>
+          <strong>Commercial read:</strong> The <em>steepness of the left tail</em> (first 5–10% of the curve)
+          quantifies revenue concentration risk — a sharp drop from $15,000 to $200 over just 2% of time means
+          most generator and battery value is captured in very few hours. Missing those hours due to a forced
+          outage or poor bidding strategy has an outsized financial impact.
+          The <strong>IQR spread of ${fP(s.iqrSpread)}</strong> (P75 minus P25) is the structural intraday
+          arbitrage available from a single daily trading cycle — a useful first-order proxy for BESS
+          energy-market revenue potential before optimisation.
+        </p>
+        <p>
+          <strong>Year-on-year PDC shape shift:</strong> The AER's 2025 State of the Market confirmed the
+          NEM's PDC is <em>widening</em> — negative prices growing on the right, extreme events growing on the
+          left — simultaneously. This bifurcation is the defining structural trend: the market is becoming
+          more volatile at both extremes even as the average price moderates. It means higher value for
+          dispatchable assets and batteries, and higher risk for exposed retailers and unhedged solar.
+        </p>
+      </div>
+    </div>
+  `;
+
+  /* Build charts after DOM settles */
+  requestAnimationFrame(() => {
+    buildIntradayChart('intradayCanvas', data.intradayShape, reg);
+    buildPDCChart('pdcCanvas', data.priceDuration, s, reg);
+  });
+
+  /* Timestamp */
+  if (data.fetchedAt) {
+    document.getElementById('fetchedAt').textContent =
+      `Data fetched ${new Date(data.fetchedAt).toLocaleString('en-AU',{timeZone:'Australia/Brisbane'})} AEST${data.fromCache?' (cached)':''}`;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LOAD FUNCTION
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+async function loadAnalysis(force = false) {
+  const region = document.getElementById('selRegion').value;
+  const year   = document.getElementById('selYear').value;
+  const btn    = document.getElementById('loadBtn');
+  const dot    = document.getElementById('cbDot');
+  const cbText = document.getElementById('cbText');
+
+  btn.disabled    = true;
+  btn.textContent = 'Loading…';
+  dot.className   = 'cb-dot';
+  cbText.textContent = `Fetching ${region} data for ${year === 'trailing12' ? 'trailing 12 months' : year}…`;
+
+  document.getElementById('kpiRail').style.display = 'none';
+  document.getElementById('content').innerHTML = `
+    <div class="loading-screen">
+      <div class="spinner"></div>
+      <div class="loading-msg">${document.getElementById('loadMsg')?.textContent || 'Loading…'}</div>
+      <div class="loading-sub">Downloading ~17,000 AEMO intervals in parallel · typically 5–15 s</div>
+    </div>`;
+
+  try {
+    const url  = `${API}/api/analysis?region=${region}&year=${year}${force?'&force=true':''}`;
+    const resp = await fetch(url);
+
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      throw new Error(body.error || body.message || `Server returned ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    if (!data.stats || !data.priceDuration?.length || !data.intradayShape?.length) {
+      throw new Error('API returned incomplete data — check server logs.');
+    }
+
+    populateKPIs(data.stats, data.periodLabel);
+    renderContent(data);
+
+    dot.className   = 'cb-dot fresh';
+    cbText.textContent = `${region} · ${data.periodLabel} · ${data.stats.totalIntervals?.toLocaleString()} intervals · ${data.fromCache ? 'served from cache' : 'freshly computed from AEMO'}`;
+
+  } catch (err) {
+    console.error('[analysis]', err);
+    document.getElementById('kpiRail').style.display = 'none';
+    document.getElementById('content').innerHTML = `
+      <div class="error-screen">
+        <div>⚠ Could not load analysis data</div>
+        <p>${err.message}</p>
+        <p style="margin-top:6px">Verify that OPENELECTRICITY_API_KEY is set and AEMO CSV files are reachable.</p>
+        <button class="retry-btn" onclick="loadAnalysis()">↺ Try Again</button>
+      </div>`;
+    dot.className   = 'cb-dot err';
+    cbText.textContent = 'Load failed: ' + err.message;
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = 'Load Analysis';
+  }
+}
+
+/* Auto-load NSW1 trailing 12 months on page open */
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('loadMsg').textContent = 'Loading NSW1 market analysis — trailing 12 months…';
+  loadAnalysis();
+});
+</script>
+</body>
+</html>
