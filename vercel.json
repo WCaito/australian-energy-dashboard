@@ -18,15 +18,6 @@
     "api/news.js": {
       "maxDuration": 60
     },
-    "api/oe-health.js": {
-      "maxDuration": 60
-    },
-    "api/oe-ping.js": {
-      "maxDuration": 60
-    },
-    "api/oe-probe.js": {
-      "maxDuration": 60
-    },
     "api/facility-data.js": {
       "maxDuration": 60
     },
