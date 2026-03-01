@@ -73,45 +73,21 @@ function toNaive(date) {
   return new Date(date.getTime() + 10 * 3600 * 1000).toISOString().slice(0, 19);
 }
 
-function buildDateRange(yearParam) {
-  const now     = new Date();
-  const curYear = now.getUTCFullYear();
-  const curMo   = now.getUTCMonth() + 1; // 1-based
+function buildDateRange() {
+  const now = new Date();
+  let y = now.getUTCFullYear();
+  let m = now.getUTCMonth(); // 0-based; equals last complete month in 1-based
+  if (m === 0) { m = 12; y--; }
 
-  let startMonth, endMonth, label;
-
-  if (yearParam === 'trailing12') {
-    // Last 12 complete months
-    let y = curYear, m = now.getUTCMonth(); // m is 0-based
-    if (m === 0) { m = 12; y--; }           // Jan edge case → last month is Dec prev year
-    startMonth = new Date(Date.UTC(y - 1, m, 1)); // 12 months before last complete
-    endMonth   = new Date(Date.UTC(y,     m, 1)); // first of month AFTER last complete
-    label = `${startMonth.toLocaleString('en-AU',{month:'short',year:'numeric',timeZone:'UTC'})} – ${new Date(endMonth - 1).toLocaleString('en-AU',{month:'short',year:'numeric',timeZone:'UTC'})}`;
-  } else {
-    const yr   = parseInt(yearParam, 10);
-    const endM = yr < curYear ? 12 : curMo - 1; // complete months only for current year
-    startMonth = new Date(Date.UTC(yr, 0, 1));    // Jan 1 of year
-    endMonth   = new Date(Date.UTC(yr, endM, 1)); // first of month after last included
-    label = endM === 12
-      ? `${yr} (full year)`
-      : `Jan – ${new Date(Date.UTC(yr, endM - 1, 1)).toLocaleString('en-AU',{month:'short',timeZone:'UTC'})} ${yr}`;
-  }
-
-  // OE wide range: always request 4 full years of data regardless of selected period.
-  // We do NOT rely on OE to filter by date — computeGWAP filters client-side.
-  // This is necessary because OE's date params are not reliably honoured for
-  // market_value at monthly resolution.
-  const oeStart = new Date(Date.UTC(curYear - 3, 0, 1)); // Jan 1, three years ago
-  const oeEnd   = new Date(Date.UTC(curYear + 1, 0, 1)); // Jan 1 next year (safe ceiling)
+  const endMonth   = new Date(Date.UTC(y, m, 1));      // first of month AFTER last complete
+  const startMonth = new Date(Date.UTC(y - 1, m, 1));  // 12 months before
 
   return {
-    // Period the user actually wants — used for filtering and display
+    dateStart:  toNaive(startMonth),
+    dateEnd:    toNaive(endMonth),
     startMonth,
     endMonth,
-    label,
-    // Wide OE request range — do NOT use these for display or filtering
-    oeDateStart: toNaive(oeStart),
-    oeDateEnd:   toNaive(oeEnd),
+    label: `${startMonth.toLocaleString('en-AU',{month:'short',year:'numeric',timeZone:'UTC'})} – ${new Date(endMonth - 1).toLocaleString('en-AU',{month:'short',year:'numeric',timeZone:'UTC'})}`,
   };
 }
 
@@ -134,16 +110,16 @@ function matchesFueltech(ft, fueltech) {
   return false;
 }
 
-async function fetchFueltechData(client, region, fueltech, oeDateStart, oeDateEnd) {
-  console.log(`[gwap] getNetworkData energy+market_value ${region} ${fueltech} ${oeDateStart} → ${oeDateEnd} (wide range, filtered in computeGWAP)`);
+async function fetchFueltechData(client, region, fueltech, dateStart, dateEnd) {
+  console.log(`[gwap] getNetworkData energy+market_value ${region} ${fueltech} ${dateStart} → ${dateEnd}`);
 
   const { datatable } = await client.getNetworkData(
     'NEM',
     ['energy', 'market_value'],
     {
       interval:          '1M',
-      dateStart:         oeDateStart,
-      dateEnd:           oeDateEnd,
+      dateStart,
+      dateEnd,
       primaryGrouping:   'network_region',
       secondaryGrouping: ['fueltech'],
     }
@@ -186,13 +162,13 @@ async function fetchFueltechData(client, region, fueltech, oeDateStart, oeDateEn
 
 // ── Fetch flat (time-weighted) price for region ───────────────────────────────
 
-async function fetchFlatPrice(client, region, oeDateStart, oeDateEnd) {
-  console.log(`[gwap] getMarket price ${region} monthly ${oeDateStart} → ${oeDateEnd} (wide range)`);
+async function fetchFlatPrice(client, region, dateStart, dateEnd) {
+  console.log(`[gwap] getMarket price ${region} monthly ${dateStart} → ${dateEnd}`);
 
   const { datatable } = await client.getMarket(
     'NEM',
     ['price'],
-    { interval: '1M', dateStart: oeDateStart, dateEnd: oeDateEnd, primaryGrouping: 'network_region' }
+    { interval: '1M', dateStart, dateEnd, primaryGrouping: 'network_region' }
   );
 
   if (!datatable?.rows?.length) {
@@ -292,13 +268,8 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ error: `Invalid fueltech. Use one of: ${FUELTECHS.join(', ')}` });
   }
 
-  const now     = new Date();
-  const valYrs  = [now.getUTCFullYear(), now.getUTCFullYear()-1, now.getUTCFullYear()-2];
-  let   year    = req.query.year || 'trailing12';
-  if (year !== 'trailing12' && !valYrs.includes(parseInt(year, 10))) year = 'trailing12';
-
   const force    = req.query.force === 'true';
-  const cacheKey = `gwap:v5:${region}:${fueltech}:${year}`;
+  const cacheKey = `gwap:v5:${region}:${fueltech}:trailing12`;
 
   if (!force) {
     const cached = await kvGet(cacheKey);
@@ -309,12 +280,12 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const range  = buildDateRange(year);
+    const range  = buildDateRange();
     const client = await getClient();
 
     const [fueltechData, flatPrices] = await Promise.all([
-      fetchFueltechData(client, region, fueltech, range.oeDateStart, range.oeDateEnd),
-      fetchFlatPrice(client, region, range.oeDateStart, range.oeDateEnd),
+      fetchFueltechData(client, region, fueltech, range.dateStart, range.dateEnd),
+      fetchFlatPrice(client, region, range.dateStart, range.dateEnd),
     ]);
 
     if (!Object.keys(fueltechData).length) {
@@ -330,7 +301,6 @@ module.exports = async function handler(req, res) {
       success:          true,
       region,
       fueltech,
-      year,
       periodLabel:      range.label,
       fetchedAt:        new Date().toISOString(),
       monthly,
