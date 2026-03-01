@@ -1,6 +1,6 @@
 /**
  * api/gwap-sa-wind.js
- * Wind Generation-Weighted Average Price (GWAP) — any NEM region
+ * Generation-Weighted Average Price (GWAP) — wind or solar, any NEM region
  *
  * ══ METHODOLOGY ════════════════════════════════════════════════════════════════
  *
@@ -13,20 +13,28 @@
  *
  * Capture rate (%) = annual GWAP / annual flat price × 100
  * Flat price = time-weighted average from getMarket (price) for the same region.
- * Capture < 100% = wind earned less per MWh than a flat baseload generator
+ * Capture < 100% = generator earned less per MWh than a flat baseload generator
  *                  (the "cannibalisation discount").
  *
  * ══ QUERY PARAMS ════════════════════════════════════════════════════════════════
- *   ?region=SA1      default SA1, any of NSW1 VIC1 QLD1 SA1 TAS1
- *   ?force=true      bypass Redis cache
+ *   ?region=SA1          default SA1, any of NSW1 VIC1 QLD1 SA1 TAS1
+ *   ?fueltech=wind       default wind; use "solar_utility" for utility solar
+ *   ?force=true          bypass Redis cache
+ *
+ * ══ FUELTECH FILTER ══════════════════════════════════════════════════════════════
+ *   wind:          ft.includes('wind')  — catches wind, wind_onshore, wind_offshore
+ *   solar_utility: ft.includes('solar') && !ft.includes('rooftop')
+ *                  — catches solar_utility, excludes behind-the-meter rooftop
+ *                  — rooftop solar does not participate in the spot market dispatch
  *
  * ══ CACHING ═════════════════════════════════════════════════════════════════════
- *   Redis 25h TTL · Key: gwap-wind:v4:{region}:trailing12
+ *   Redis 25h TTL · Key: gwap:v5:{region}:{fueltech}:trailing12
  */
 
 'use strict';
 
-const REGIONS = ['NSW1','VIC1','QLD1','SA1','TAS1'];
+const REGIONS   = ['NSW1','VIC1','QLD1','SA1','TAS1'];
+const FUELTECHS = ['wind', 'solar_utility'];
 
 // ── Redis ──────────────────────────────────────────────────────────────────────
 
@@ -94,10 +102,16 @@ function monthLabel(key) {
     .toLocaleString('en-AU', { month: 'short', year: '2-digit', timeZone: 'UTC' });
 }
 
-// ── Fetch energy + market_value for wind in a given region ────────────────────
+// ── Fetch energy + market_value for a given fueltech in a given region ─────────
 
-async function fetchWindData(client, region, dateStart, dateEnd) {
-  console.log(`[gwap] getNetworkData energy+market_value ${region} wind ${dateStart} → ${dateEnd}`);
+function matchesFueltech(ft, fueltech) {
+  if (fueltech === 'wind')          return ft.includes('wind');
+  if (fueltech === 'solar_utility') return ft.includes('solar') && !ft.includes('rooftop');
+  return false;
+}
+
+async function fetchFueltechData(client, region, fueltech, dateStart, dateEnd) {
+  console.log(`[gwap] getNetworkData energy+market_value ${region} ${fueltech} ${dateStart} → ${dateEnd}`);
 
   const { datatable } = await client.getNetworkData(
     'NEM',
@@ -132,7 +146,7 @@ async function fetchWindData(client, region, dateStart, dateEnd) {
     const ts = row.interval;
 
     if (r !== region) continue;
-    if (!ft.includes('wind')) continue;
+    if (!matchesFueltech(ft, fueltech)) continue;
     if (!ts) continue;
 
     const key = monthKey(ts);
@@ -142,7 +156,7 @@ async function fetchWindData(client, region, dateStart, dateEnd) {
   }
 
   const keys = Object.keys(out).sort();
-  console.log(`[gwap] ${region} wind months: ${keys.length} → ${keys.join(', ')}`);
+  console.log(`[gwap] ${region} ${fueltech} months: ${keys.length} → ${keys.join(', ')}`);
   return out;
 }
 
@@ -244,13 +258,18 @@ module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const region = (req.query.region || 'SA1').toUpperCase();
+  const region   = (req.query.region   || 'SA1').toUpperCase();
+  const fueltech = (req.query.fueltech || 'wind').toLowerCase();
+
   if (!REGIONS.includes(region)) {
     return res.status(400).json({ error: `Invalid region. Use one of: ${REGIONS.join(', ')}` });
   }
+  if (!FUELTECHS.includes(fueltech)) {
+    return res.status(400).json({ error: `Invalid fueltech. Use one of: ${FUELTECHS.join(', ')}` });
+  }
 
   const force    = req.query.force === 'true';
-  const cacheKey = `gwap-wind:v4:${region}:trailing12`;
+  const cacheKey = `gwap:v5:${region}:${fueltech}:trailing12`;
 
   if (!force) {
     const cached = await kvGet(cacheKey);
@@ -264,36 +283,36 @@ module.exports = async function handler(req, res) {
     const range  = buildDateRange();
     const client = await getClient();
 
-    const [windData, flatPrices] = await Promise.all([
-      fetchWindData(client, region, range.dateStart, range.dateEnd),
+    const [fueltechData, flatPrices] = await Promise.all([
+      fetchFueltechData(client, region, fueltech, range.dateStart, range.dateEnd),
       fetchFlatPrice(client, region, range.dateStart, range.dateEnd),
     ]);
 
-    if (!Object.keys(windData).length) {
+    if (!Object.keys(fueltechData).length) {
       return res.status(503).json({
-        error: `No ${region} wind data from OpenElectricity. The region may have no wind generation, or the API is temporarily unavailable.`,
+        error: `No ${region} ${fueltech} data from OpenElectricity. The region may have no ${fueltech} generation, or the API is temporarily unavailable.`,
       });
     }
 
     const { monthly, annualGWAP, annualFlatPrice, captureRate, totalWindGWh, totalMarketValueM } =
-      computeGWAP(windData, flatPrices, range);
+      computeGWAP(fueltechData, flatPrices, range);
 
     const result = {
       success:          true,
       region,
-      fueltech:         'wind',
+      fueltech,
       periodLabel:      range.label,
       fetchedAt:        new Date().toISOString(),
       monthly,
       annualGWAP,
       annualFlatPrice,
       captureRate,
-      totalWindGWh,
+      totalGenerationGWh: totalWindGWh,
       totalMarketValueM,
     };
 
     await kvSet(cacheKey, result);
-    console.log(`[gwap] done ${region} — GWAP $${annualGWAP}/MWh | flat $${annualFlatPrice}/MWh | capture ${captureRate}% | ${totalWindGWh} GWh`);
+    console.log(`[gwap] done ${region} ${fueltech} — GWAP $${annualGWAP}/MWh | flat $${annualFlatPrice}/MWh | capture ${captureRate}% | ${totalWindGWh} GWh`);
     return res.status(200).json({ ...result, fromCache: false });
 
   } catch (err) {
