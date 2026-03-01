@@ -121,8 +121,8 @@ async function fetchWindData(client, dateStart, dateEnd) {
       interval:         '1M',
       dateStart,
       dateEnd,
-      primaryGrouping:  'network_region',
-      secondaryGrouping:'fueltech',
+      primaryGrouping:   'network_region',
+      secondaryGrouping: ['fueltech'],
     }
   );
 
