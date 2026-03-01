@@ -812,15 +812,15 @@ function buildPDCChart(canvasId, pdc, stats, region) {
    SECTION 3: SA WIND GWAP
    ═══════════════════════════════════════════════════════════════════════════ */
 
-function buildGWAPChart(canvasId, monthly) {
+function buildGWAPChart(canvasId, monthly, region) {
   destroyChart(canvasId);
   const canvas = document.getElementById(canvasId);
   if (!canvas || !monthly?.length) return;
 
-  const labels      = monthly.map(m => m.label);
-  const gwapData    = monthly.map(m => m.gwap);
-  const flatData    = monthly.map(m => m.flatPrice);
-  const genData     = monthly.map(m => m.energyGWh);
+  const labels   = monthly.map(m => m.label);
+  const gwapData = monthly.map(m => m.gwap);
+  const flatData = monthly.map(m => m.flatPrice);
+  const genData  = monthly.map(m => m.energyGWh);
 
   _charts[canvasId] = new Chart(canvas, {
     type: 'bar',
@@ -838,10 +838,10 @@ function buildGWAPChart(canvasId, monthly) {
           yAxisID:         'yGen',
           order:           3,
         },
-        /* Flat SA1 price line — left axis */
+        /* Flat regional price line — left axis */
         {
           type:        'line',
-          label:       'SA1 flat price ($/MWh)',
+          label:       `${region} flat price ($/MWh)`,
           data:        flatData,
           borderColor: '#6b7280',
           borderWidth: 1.5,
@@ -856,7 +856,7 @@ function buildGWAPChart(canvasId, monthly) {
         /* Wind GWAP line — left axis */
         {
           type:        'line',
-          label:       'SA wind GWAP ($/MWh)',
+          label:       `${region} wind GWAP ($/MWh)`,
           data:        gwapData,
           borderColor: '#7c3aed',
           borderWidth: 2.5,
@@ -894,7 +894,7 @@ function buildGWAPChart(canvasId, monthly) {
                   cr ? ` Capture rate: ${cr}%` : '',
                 ].filter(Boolean);
               }
-              return ` SA1 flat price: $${ctx.parsed.y != null ? ctx.parsed.y.toFixed(0) : '—'}/MWh`;
+              return ` ${region} flat price: $${ctx.parsed.y != null ? ctx.parsed.y.toFixed(0) : '—'}/MWh`;
             },
           },
         },
@@ -905,23 +905,19 @@ function buildGWAPChart(canvasId, monthly) {
           ticks: { color: '#9ca3af', font: { family: "'IBM Plex Mono',monospace", size: 9 } },
         },
         yPrice: {
-          type:     'linear',
-          position: 'left',
+          type: 'linear', position: 'left',
           grid: { color: '#e5e7eb', lineWidth: 0.5 },
           ticks: {
-            color: '#6b7280',
-            font:  { family: "'IBM Plex Mono',monospace", size: 9 },
+            color: '#6b7280', font: { family: "'IBM Plex Mono',monospace", size: 9 },
             callback: v => `$${v}`,
           },
           title: { display: true, text: 'Price ($/MWh)', color: '#6b7280', font: { family: "'IBM Plex Sans',sans-serif", size: 10, weight: '500' } },
         },
         yGen: {
-          type:     'linear',
-          position: 'right',
-          grid:     { drawOnChartArea: false },
+          type: 'linear', position: 'right',
+          grid: { drawOnChartArea: false },
           ticks: {
-            color: '#9ca3af',
-            font:  { family: "'IBM Plex Mono',monospace", size: 9 },
+            color: '#9ca3af', font: { family: "'IBM Plex Mono',monospace", size: 9 },
             callback: v => `${v} GWh`,
           },
           title: { display: true, text: 'Wind generation (GWh)', color: '#9ca3af', font: { family: "'IBM Plex Sans',sans-serif", size: 10, weight: '500' } },
@@ -931,28 +927,18 @@ function buildGWAPChart(canvasId, monthly) {
     plugins: [{
       id: 'captureShade',
       afterDatasetsDraw(chart) {
-        // Shade the gap between GWAP and flat price lines
-        const { ctx, scales: { yPrice, x }, chartArea } = chart;
+        const { ctx, chartArea } = chart;
         if (!chartArea) return;
-
         const gwapDs = chart.data.datasets.findIndex(d => d.label.includes('GWAP'));
         const flatDs = chart.data.datasets.findIndex(d => d.label.includes('flat'));
         if (gwapDs < 0 || flatDs < 0) return;
-
         const gwapMeta = chart.getDatasetMeta(gwapDs);
         const flatMeta = chart.getDatasetMeta(flatDs);
         if (!gwapMeta.data.length || !flatMeta.data.length) return;
-
         ctx.save();
         ctx.beginPath();
-        // Top edge: follow gwap line left→right
-        gwapMeta.data.forEach((pt, i) => {
-          i === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y);
-        });
-        // Bottom edge: follow flat line right→left
-        for (let i = flatMeta.data.length - 1; i >= 0; i--) {
-          ctx.lineTo(flatMeta.data[i].x, flatMeta.data[i].y);
-        }
+        gwapMeta.data.forEach((pt, i) => i === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y));
+        for (let i = flatMeta.data.length - 1; i >= 0; i--) ctx.lineTo(flatMeta.data[i].x, flatMeta.data[i].y);
         ctx.closePath();
         ctx.fillStyle = 'rgba(124,58,237,0.07)';
         ctx.fill();
@@ -962,51 +948,152 @@ function buildGWAPChart(canvasId, monthly) {
   });
 }
 
+/* ── GWAP download: chart PNG + methodology CSV ────────────────────────────── */
+
+function downloadGWAP(gwap) {
+  const region = gwap.region;
+
+  // ── 1. Download chart as PNG ──────────────────────────────────────────────
+  const canvas = document.getElementById('gwapCanvas');
+  if (canvas) {
+    // Render onto a white background (canvas is transparent by default)
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width  = canvas.width;
+    exportCanvas.height = canvas.height;
+    const ectx = exportCanvas.getContext('2d');
+    ectx.fillStyle = '#ffffff';
+    ectx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+    ectx.drawImage(canvas, 0, 0);
+
+    const link = document.createElement('a');
+    link.download = `gwap-wind-${region}-trailing12.png`;
+    link.href = exportCanvas.toDataURL('image/png');
+    link.click();
+  }
+
+  // ── 2. Download methodology CSV ───────────────────────────────────────────
+  const discount = (gwap.annualGWAP != null && gwap.annualFlatPrice != null)
+    ? (gwap.annualFlatPrice - gwap.annualGWAP).toFixed(2) : '';
+
+  const lines = [
+    // Methodology header block
+    `# Wind Farm Generation-Weighted Average Price (GWAP) — ${region}`,
+    `# Period: ${gwap.periodLabel}`,
+    `# Generated: ${new Date().toLocaleString('en-AU',{timeZone:'Australia/Brisbane'})} AEST`,
+    `#`,
+    `# ── WHAT IS GWAP? ──────────────────────────────────────────────────────────`,
+    `# GWAP is the average price actually EARNED by wind generators — weighted by`,
+    `# when they generate, not a simple time-average of spot prices.`,
+    `# Because wind generates more during low-price periods (midday solar surplus)`,
+    `# and less during high-price peaks, its GWAP is typically BELOW the flat price.`,
+    `# The gap is called the cannibalisation discount.`,
+    `#`,
+    `# ── FORMULA ────────────────────────────────────────────────────────────────`,
+    `# Monthly GWAP  = market_value ($) / energy (MWh)`,
+    `# Annual GWAP   = Σ market_value ($) / Σ energy (MWh)  [across all 12 months]`,
+    `# Capture rate  = GWAP / flat_price × 100%`,
+    `# Flat price    = time-weighted average ${region} spot price (what a flat`,
+    `#                 baseload generator running every interval would have earned)`,
+    `#`,
+    `# ── DATA SOURCE ─────────────────────────────────────────────────────────────`,
+    `# market_value and energy: OpenElectricity getNetworkData()`,
+    `#   network=NEM metrics=[energy market_value] interval=1M`,
+    `#   primaryGrouping=network_region secondaryGrouping=[fueltech]`,
+    `#   filtered to region=${region} fueltech=wind`,
+    `# OpenElectricity computes market_value as Σ(generation_MW × spot_price_$/MWh)`,
+    `# at 5-minute dispatch intervals before aggregating to monthly totals.`,
+    `# This makes the GWAP a genuine interval-level calculation — not an approximation.`,
+    `#`,
+    `# flat_price: OpenElectricity getMarket() price metric, interval=1M, region=${region}`,
+    `#`,
+    `# ── ANNUAL SUMMARY ──────────────────────────────────────────────────────────`,
+    `# Annual GWAP:            $${gwap.annualGWAP != null ? gwap.annualGWAP.toFixed(2) : 'N/A'}/MWh`,
+    `# ${region} flat price:         $${gwap.annualFlatPrice != null ? gwap.annualFlatPrice.toFixed(2) : 'N/A'}/MWh`,
+    `# Cannibalisation discount: $${discount}/MWh`,
+    `# Wind capture rate:       ${gwap.captureRate != null ? gwap.captureRate + '%' : 'N/A'}`,
+    `# Total wind generation:   ${gwap.totalWindGWh != null ? gwap.totalWindGWh.toLocaleString() + ' GWh' : 'N/A'}`,
+    `# Total market value:      $${gwap.totalMarketValueM != null ? gwap.totalMarketValueM + 'M' : 'N/A'}`,
+    `#`,
+    `# ── MONTHLY DATA ────────────────────────────────────────────────────────────`,
+    // Column headers
+    `Month,Wind Energy (GWh),Wind Energy (MWh),Market Value ($M),Wind GWAP ($/MWh),${region} Flat Price ($/MWh),Capture Rate (%),Cannibalisation Discount ($/MWh)`,
+    // Monthly rows
+    ...gwap.monthly.map(m => {
+      const disc = (m.gwap != null && m.flatPrice != null)
+        ? (m.flatPrice - m.gwap).toFixed(2) : '';
+      return [
+        m.label,
+        m.energyGWh  ?? '',
+        m.energyMWh  ?? '',
+        m.marketValueM ?? '',
+        m.gwap       ?? '',
+        m.flatPrice  ?? '',
+        m.captureRate ?? '',
+        disc,
+      ].join(',');
+    }),
+    ``,
+    `# ── INTERPRETATION GUIDE ────────────────────────────────────────────────────`,
+    `# Capture rate > 100%: wind generated disproportionately during high-price hours`,
+    `# Capture rate < 100%: wind cannibalized its own prices (typical as penetration grows)`,
+    `# Widening discount over time = increasing cannibalisation as wind capacity expands`,
+    `# Use GWAP (not flat price) when modelling merchant wind revenue in a PPA`,
+  ];
+
+  const blob = new Blob([lines.join('\r\n')], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.download = `gwap-wind-${region}-trailing12-methodology.csv`;
+  link.href = url;
+  // Small delay so PNG download doesn't race
+  setTimeout(() => { link.click(); URL.revokeObjectURL(url); }, 300);
+}
+
 function renderGWAPSection(gwap) {
-  const cr = gwap.captureRate;
-  const crColor = cr == null ? '' : cr >= 100 ? 'green' : cr >= 90 ? 'amber' : 'red';
-  const crLabel = cr == null ? '—' : `${cr}%`;
+  const region   = gwap.region;
+  const cr       = gwap.captureRate;
+  const crColor  = cr == null ? '' : cr >= 100 ? 'green' : cr >= 90 ? 'amber' : 'red';
+  const crLabel  = cr == null ? '—' : `${cr}%`;
   const discount = (gwap.annualGWAP != null && gwap.annualFlatPrice != null)
     ? (gwap.annualFlatPrice - gwap.annualGWAP).toFixed(0) : null;
 
   return `
-    <!-- ══ SECTION 3: SA WIND GWAP ══════════════════════════════════════════ -->
+    <!-- ══ SECTION 3: WIND GWAP ══════════════════════════════════════════════ -->
     <div class="section">
-      <div class="section-title">SA Wind — Generation-Weighted Average Price</div>
+      <div class="section-title">${region} Wind — Generation-Weighted Average Price</div>
       <p class="section-desc">
-        The GWAP is the average price actually <em>earned</em> by SA wind farms —
-        weighted by when they generate, not just a time-average of spot prices.
-        Because wind generates more during periods of low prices (and less during
-        high-price peaks), its GWAP is typically below the flat price reference.
-        The gap is the <strong>cannibalisation discount</strong>.
+        The GWAP is the average price actually <em>earned</em> by ${region} wind farms —
+        weighted by when they generate, not a time-average of spot prices.
+        Because wind generates more during low-price periods and less during high-price peaks,
+        its GWAP is typically below the flat reference. The gap is the <strong>cannibalisation discount</strong>.
       </p>
 
       <div class="triptych">
         <div class="tri-cell">
-          <div class="tri-label">SA Wind Annual GWAP</div>
+          <div class="tri-label">${region} Wind Annual GWAP</div>
           <div class="tri-value purple">$${gwap.annualGWAP != null ? gwap.annualGWAP.toFixed(0) : '—'}/MWh</div>
           <div class="tri-desc">
-            Revenue-weighted average price earned by SA wind generators across the trailing
-            12 months. Computed as total market value ($) ÷ total energy generated (MWh)
-            — the true interval-level GWAP from OpenElectricity data.
+            Revenue-weighted average price earned by ${region} wind generators across the trailing
+            12 months. Computed as total market value ($) ÷ total energy (MWh) —
+            a genuine interval-level GWAP from OpenElectricity 5-minute dispatch data.
           </div>
         </div>
         <div class="tri-cell">
-          <div class="tri-label">SA1 Flat Reference Price</div>
+          <div class="tri-label">${region} Flat Reference Price</div>
           <div class="tri-value" style="color:#6b7280">$${gwap.annualFlatPrice != null ? gwap.annualFlatPrice.toFixed(0) : '—'}/MWh</div>
           <div class="tri-desc">
-            Time-weighted average SA1 spot price — what a flat baseload generator
-            running every interval would have earned. This is the benchmark against
-            which wind's capture rate discount is measured.
+            Time-weighted average ${region} spot price — what a flat baseload generator
+            running every interval would have earned. The benchmark against which
+            wind's capture rate is measured.
           </div>
         </div>
         <div class="tri-cell">
           <div class="tri-label">Wind Capture Rate</div>
           <div class="tri-value ${crColor}">${crLabel}${discount ? ` (−$${discount}/MWh)` : ''}</div>
           <div class="tri-desc">
-            Wind GWAP ÷ flat price. A capture rate below 100% means wind farms earned
-            less per MWh than a baseload generator. As wind penetration grows, this
-            discount deepens — the core challenge for merchant wind PPA economics.
+            Wind GWAP ÷ flat price. Below 100% means wind earned less per MWh than
+            a baseload generator. As wind penetration grows, this discount typically
+            deepens — the core challenge for merchant wind PPA economics.
           </div>
         </div>
       </div>
@@ -1014,14 +1101,23 @@ function renderGWAPSection(gwap) {
       <div class="chart-card">
         <div class="chart-card-head">
           <div>
-            <div class="chart-card-title">SA Wind GWAP vs Flat SA1 Price — Monthly</div>
+            <div class="chart-card-title">${region} Wind GWAP vs Flat ${region} Price — Monthly</div>
             <div class="chart-card-meta">${gwap.periodLabel} · ${gwap.totalWindGWh != null ? gwap.totalWindGWh.toLocaleString() + ' GWh total wind generation' : ''} · Source: OpenElectricity</div>
           </div>
-          <div class="chart-legend">
-            <div class="legend-item"><div class="legend-swatch" style="background:#7c3aed"></div><span>Wind GWAP</span></div>
-            <div class="legend-item"><div class="legend-swatch" style="background:#6b7280;border-top:2px dashed #6b7280;height:0;background:none"></div><span>SA1 flat price</span></div>
-            <div class="legend-item"><div class="legend-band" style="background:#7c3aed"></div><span>Cannibalisation gap</span></div>
-            <div class="legend-item"><div class="legend-swatch" style="background:rgba(124,58,237,0.25)"></div><span>Wind generation (GWh)</span></div>
+          <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+            <div class="chart-legend">
+              <div class="legend-item"><div class="legend-swatch" style="background:#7c3aed"></div><span>Wind GWAP</span></div>
+              <div class="legend-item"><div class="legend-swatch" style="border-top:2px dashed #6b7280;height:0;width:18px;background:none"></div><span>${region} flat price</span></div>
+              <div class="legend-item"><div class="legend-band" style="background:#7c3aed"></div><span>Cannibalisation gap</span></div>
+              <div class="legend-item"><div class="legend-swatch" style="background:rgba(124,58,237,0.25)"></div><span>Wind gen (GWh)</span></div>
+            </div>
+            <button
+              onclick="downloadGWAP(window._lastGwapData)"
+              style="padding:6px 14px;background:var(--text-1);color:#fff;border:none;font-family:'IBM Plex Sans',sans-serif;font-size:0.75rem;font-weight:500;cursor:pointer;white-space:nowrap;transition:background 0.15s;flex-shrink:0"
+              onmouseover="this.style.background='var(--accent)'"
+              onmouseout="this.style.background='var(--text-1)'"
+              title="Download chart as PNG and full methodology CSV"
+            >↓ Export</button>
           </div>
         </div>
         <div class="chart-body">
@@ -1029,30 +1125,34 @@ function renderGWAPSection(gwap) {
         </div>
         <div class="chart-foot">
           <div class="chart-foot-item"><div class="foot-dot" style="background:#7c3aed"></div><span>GWAP below flat price = wind cannibalising its own revenue</span></div>
-          <div class="chart-foot-item"><div class="foot-dot" style="background:#9ca3af"></div><span>Bars (right axis) = monthly SA wind generation in GWh</span></div>
+          <div class="chart-foot-item"><div class="foot-dot" style="background:#9ca3af"></div><span>Bars (right axis) = monthly wind generation in GWh</span></div>
+          <div class="chart-foot-item"><div class="foot-dot" style="background:#111827"></div><span>Export button downloads chart PNG + full methodology CSV</span></div>
         </div>
       </div>
 
       <div class="interp">
         <p>
-          <strong>How to read this chart:</strong> The purple line is SA wind's actual earned price each month —
-          the GWAP. The dashed grey line is what a flat baseload generator would have earned (SA1 time-weighted
-          average). The shaded purple area between them is the cannibalisation discount. When wind generates
-          heavily (tall grey bars), the gap typically widens — wind depresses the very prices it earns into.
+          <strong>How to read this chart:</strong> The purple line is ${region} wind's actual earned price each
+          month — the GWAP. The dashed grey line is what a flat baseload generator would have earned
+          (${region} time-weighted average). The shaded purple area between them is the cannibalisation
+          discount. When wind generates heavily (tall bars), the gap typically widens — wind
+          depresses the very prices it earns into.
         </p>
         <p>
-          <strong>Why GWAP matters for PPAs:</strong> A developer building a wind farm in SA cannot assume
-          they will earn the flat spot price. If SA1 averages $80/MWh but wind's GWAP is $${gwap.annualGWAP != null ? gwap.annualGWAP.toFixed(0) : '?'}/MWh,
-          a merchant PPA struck at the flat reference overestimates revenue by the
-          ${discount ? `$${discount}/MWh` : 'discount'} cannibalisation gap. As SA wind penetration grows year-on-year,
-          this discount is expected to widen further — making fixed-price PPA structures increasingly valuable
-          for developers and increasingly expensive for offtakers.
+          <strong>Why GWAP matters for PPAs:</strong> A developer cannot assume they will earn the flat
+          spot price. If ${region} averages $${gwap.annualFlatPrice != null ? gwap.annualFlatPrice.toFixed(0) : '?'}/MWh
+          but wind's GWAP is $${gwap.annualGWAP != null ? gwap.annualGWAP.toFixed(0) : '?'}/MWh,
+          a merchant PPA struck at the flat reference overestimates revenue by
+          ${discount ? `$${discount}/MWh` : 'the cannibalisation discount'}.
+          As penetration grows, this discount is expected to widen — making fixed-price PPAs
+          increasingly valuable for developers and increasingly expensive for offtakers.
         </p>
         <p>
-          <strong>Methodology note:</strong> GWAP = Σ(market_value $) ÷ Σ(energy MWh) where both
-          series are sourced from OpenElectricity at monthly resolution. OpenElectricity computes
-          <em>market_value</em> as the sum of (generation × spot_price) across 5-minute dispatch intervals —
-          making this a genuine interval-level weighted average, not an approximation.
+          <strong>Methodology:</strong> GWAP = Σ(market_value $) ÷ Σ(energy MWh).
+          OpenElectricity computes <em>market_value</em> as Σ(generation × spot_price) at
+          5-minute dispatch resolution before aggregating to monthly — making this a true
+          interval-level weighted average. Click <strong>↓ Export</strong> to download the
+          chart and a full methodology CSV with the monthly calculation table.
         </p>
       </div>
     </div>
@@ -1261,7 +1361,7 @@ function renderContent(data, gwapData) {
   requestAnimationFrame(() => {
     buildIntradayChart('intradayCanvas', data.intradayShape, reg);
     buildPDCChart('pdcCanvas', data.priceDuration, s, reg);
-    if (gwapData) buildGWAPChart('gwapCanvas', gwapData.monthly);
+    if (gwapData) buildGWAPChart('gwapCanvas', gwapData.monthly, gwapData.region);
   });
 
   /* Timestamp */
@@ -1296,8 +1396,8 @@ async function loadAnalysis(force = false) {
     </div>`;
 
   try {
-    const url  = `${API}/api/analysis?region=${region}&year=${year}${force?'&force=true':''}`;
-    const gwapUrl = `${API}/api/gwap-sa-wind${force?'?force=true':''}`;
+    const url     = `${API}/api/analysis?region=${region}&year=${year}${force?'&force=true':''}`;
+    const gwapUrl = `${API}/api/gwap-sa-wind?region=${region}${force?'&force=true':''}`;
 
     // Fetch analysis + GWAP in parallel — GWAP is non-fatal if it fails
     const [resp, gwapResp] = await Promise.all([
@@ -1320,6 +1420,7 @@ async function loadAnalysis(force = false) {
       gwapData = await gwapResp.json().catch(() => null);
       if (!gwapData?.monthly?.length) gwapData = null;
     }
+    window._lastGwapData = gwapData;  // make available to export button
 
     populateKPIs(data.stats, data.periodLabel);
     renderContent(data, gwapData);
