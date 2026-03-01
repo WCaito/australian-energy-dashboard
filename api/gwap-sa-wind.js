@@ -1,42 +1,32 @@
 /**
  * api/gwap-sa-wind.js
- * SA Wind — Generation-Weighted Average Price (GWAP)
+ * Wind Generation-Weighted Average Price (GWAP) — any NEM region
  *
  * ══ METHODOLOGY ════════════════════════════════════════════════════════════════
  *
  * GWAP ($/MWh) = Σ market_value ($) / Σ energy (MWh)
  *
- * Both market_value and energy come from OpenElectricity getNetworkData at
- * monthly resolution. OE computes market_value as Σ(generation × spot_price)
- * aggregated from 5-minute dispatch intervals, so this is a genuine
- * interval-level GWAP — not a month-average-price × month-energy approximation.
+ * Both metrics come from OpenElectricity getNetworkData at monthly resolution.
+ * OE computes market_value as Σ(generation × spot_price) across 5-minute
+ * dispatch intervals before aggregating to monthly — so this is a genuine
+ * interval-level GWAP, not a monthly-average-price × monthly-energy approximation.
  *
  * Capture rate (%) = annual GWAP / annual flat price × 100
- * where flat price = simple time-weighted SA1 average from getMarket (price).
- * A capture rate < 100% means SA wind earned less per MWh than a flat
- * baseload generator — the "cannibalisation discount".
+ * Flat price = time-weighted average from getMarket (price) for the same region.
+ * Capture < 100% = wind earned less per MWh than a flat baseload generator
+ *                  (the "cannibalisation discount").
  *
- * ══ DATA SOURCES ════════════════════════════════════════════════════════════════
- *
- *   getNetworkData("NEM", ["energy", "market_value"], {
- *     interval: "1M",
- *     primaryGrouping: "network_region",
- *     secondaryGrouping: "fueltech"
- *   })
- *   → rows filtered to network_region === "SA1" && fueltech includes "wind"
- *
- *   getMarket("NEM", ["price"], {
- *     interval: "1M",
- *     primaryGrouping: "network_region"
- *   })
- *   → rows filtered to network_region === "SA1"
+ * ══ QUERY PARAMS ════════════════════════════════════════════════════════════════
+ *   ?region=SA1      default SA1, any of NSW1 VIC1 QLD1 SA1 TAS1
+ *   ?force=true      bypass Redis cache
  *
  * ══ CACHING ═════════════════════════════════════════════════════════════════════
- *   Redis 25h TTL · Key: gwap-sa-wind:v3:trailing12
- *   Force: ?force=true
+ *   Redis 25h TTL · Key: gwap-wind:v4:{region}:trailing12
  */
 
 'use strict';
+
+const REGIONS = ['NSW1','VIC1','QLD1','SA1','TAS1'];
 
 // ── Redis ──────────────────────────────────────────────────────────────────────
 
@@ -72,22 +62,17 @@ async function getClient() {
 // ── Date helpers ──────────────────────────────────────────────────────────────
 
 function toNaive(date) {
-  // Strip timezone — OE expects naive AEST strings e.g. "2025-02-01T00:00:00"
   return new Date(date.getTime() + 10 * 3600 * 1000).toISOString().slice(0, 19);
 }
 
-// Trailing 12 complete months
 function buildDateRange() {
-  const now  = new Date();
-  let   y    = now.getUTCFullYear();
-  let   m    = now.getUTCMonth(); // 0-based: this is last complete month in 1-based
-
-  // If UTC month is Jan (0), last complete month is Dec of previous year
+  const now = new Date();
+  let y = now.getUTCFullYear();
+  let m = now.getUTCMonth(); // 0-based; equals last complete month in 1-based
   if (m === 0) { m = 12; y--; }
-  // else m is already the correct 1-based last complete month
 
-  const endMonth   = new Date(Date.UTC(y, m, 1));          // first day of month AFTER last complete
-  const startMonth = new Date(Date.UTC(y - 1, m, 1));      // 12 months before end
+  const endMonth   = new Date(Date.UTC(y, m, 1));      // first of month AFTER last complete
+  const startMonth = new Date(Date.UTC(y - 1, m, 1));  // 12 months before
 
   return {
     dateStart:  toNaive(startMonth),
@@ -100,7 +85,7 @@ function buildDateRange() {
 
 function monthKey(date) {
   const d = new Date(date);
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2,'0')}`;
 }
 
 function monthLabel(key) {
@@ -109,16 +94,16 @@ function monthLabel(key) {
     .toLocaleString('en-AU', { month: 'short', year: '2-digit', timeZone: 'UTC' });
 }
 
-// ── Fetch energy + market_value for SA wind ───────────────────────────────────
+// ── Fetch energy + market_value for wind in a given region ────────────────────
 
-async function fetchWindData(client, dateStart, dateEnd) {
-  console.log(`[gwap] getNetworkData energy+market_value SA1 wind ${dateStart} → ${dateEnd}`);
+async function fetchWindData(client, region, dateStart, dateEnd) {
+  console.log(`[gwap] getNetworkData energy+market_value ${region} wind ${dateStart} → ${dateEnd}`);
 
   const { datatable } = await client.getNetworkData(
     'NEM',
     ['energy', 'market_value'],
     {
-      interval:         '1M',
+      interval:          '1M',
       dateStart,
       dateEnd,
       primaryGrouping:   'network_region',
@@ -131,52 +116,45 @@ async function fetchWindData(client, dateStart, dateEnd) {
     return {};
   }
 
-  // Log what region+fueltech combos came back — useful for debugging
+  // Log unique combos for debugging
   const seen = new Set();
   for (const row of datatable.rows) {
     const r = row.network_region || row.region;
     const f = row.fueltech || row.fueltech_group || '';
     if (r && f) seen.add(`${r}/${f}`);
   }
-  console.log(`[gwap] combos: ${[...seen].slice(0, 20).join(', ')}`);
+  console.log(`[gwap] combos in response: ${[...seen].slice(0, 30).join(', ')}`);
 
-  // Build month → { energyMWh, marketValueDollars } for SA1 wind
   const out = {};
   for (const row of datatable.rows) {
-    const region = row.network_region || row.region;
-    const ft     = String(row.fueltech || row.fueltech_group || '').toLowerCase();
-    const ts     = row.interval;
+    const r  = row.network_region || row.region;
+    const ft = String(row.fueltech || row.fueltech_group || '').toLowerCase();
+    const ts = row.interval;
 
-    if (region !== 'SA1') continue;
+    if (r !== region) continue;
     if (!ft.includes('wind')) continue;
     if (!ts) continue;
 
     const key = monthKey(ts);
     if (!out[key]) out[key] = { energyMWh: 0, marketValueDollars: 0 };
-
-    if (row.energy      != null) out[key].energyMWh          += Number(row.energy);
+    if (row.energy       != null) out[key].energyMWh          += Number(row.energy);
     if (row.market_value != null) out[key].marketValueDollars += Number(row.market_value);
   }
 
   const keys = Object.keys(out).sort();
-  console.log(`[gwap] SA1 wind months: ${keys.length} → ${keys.join(', ')}`);
+  console.log(`[gwap] ${region} wind months: ${keys.length} → ${keys.join(', ')}`);
   return out;
 }
 
-// ── Fetch SA1 flat (time-weighted) price ──────────────────────────────────────
+// ── Fetch flat (time-weighted) price for region ───────────────────────────────
 
-async function fetchFlatPrice(client, dateStart, dateEnd) {
-  console.log(`[gwap] getMarket price SA1 monthly ${dateStart} → ${dateEnd}`);
+async function fetchFlatPrice(client, region, dateStart, dateEnd) {
+  console.log(`[gwap] getMarket price ${region} monthly ${dateStart} → ${dateEnd}`);
 
   const { datatable } = await client.getMarket(
     'NEM',
     ['price'],
-    {
-      interval:        '1M',
-      dateStart,
-      dateEnd,
-      primaryGrouping: 'network_region',
-    }
+    { interval: '1M', dateStart, dateEnd, primaryGrouping: 'network_region' }
   );
 
   if (!datatable?.rows?.length) {
@@ -186,21 +164,20 @@ async function fetchFlatPrice(client, dateStart, dateEnd) {
 
   const out = {};
   for (const row of datatable.rows) {
-    const region = row.network_region || row.region;
-    const ts     = row.interval;
-    const price  = row.price;
-    if (region !== 'SA1' || !ts || price == null) continue;
-    out[monthKey(ts)] = Number(price);
+    const r  = row.network_region || row.region;
+    const ts = row.interval;
+    const p  = row.price;
+    if (r !== region || !ts || p == null) continue;
+    out[monthKey(ts)] = Number(p);
   }
 
-  console.log(`[gwap] SA1 flat price months: ${Object.keys(out).length}`);
+  console.log(`[gwap] ${region} flat price months: ${Object.keys(out).length}`);
   return out;
 }
 
 // ── Compute GWAP ──────────────────────────────────────────────────────────────
 
 function computeGWAP(windData, flatPrices, { startMonth, endMonth }) {
-  // Build ordered month list matching the 12-month window
   const months = [];
   const cursor = new Date(startMonth);
   while (cursor < endMonth) {
@@ -208,18 +185,18 @@ function computeGWAP(windData, flatPrices, { startMonth, endMonth }) {
     cursor.setUTCMonth(cursor.getUTCMonth() + 1);
   }
 
-  let totalEnergyMWh     = 0;
-  let totalMarketValue   = 0;
-  let flatPriceSum       = 0;
-  let flatPriceCount     = 0;
+  let totalEnergyMWh   = 0;
+  let totalMarketValue = 0;
+  let flatPriceSum     = 0;
+  let flatPriceCount   = 0;
 
   const monthly = months.map(key => {
     const w  = windData[key];
     const fp = flatPrices[key] ?? null;
 
-    const energyMWh          = w?.energyMWh          ?? null;
-    const marketValueDollars = w?.marketValueDollars  ?? null;
-    const gwap = (energyMWh && energyMWh > 0 && marketValueDollars != null)
+    const energyMWh          = w?.energyMWh         ?? null;
+    const marketValueDollars = w?.marketValueDollars ?? null;
+    const gwap = (energyMWh != null && energyMWh > 0 && marketValueDollars != null)
       ? +(marketValueDollars / energyMWh).toFixed(2)
       : null;
 
@@ -229,34 +206,34 @@ function computeGWAP(windData, flatPrices, { startMonth, endMonth }) {
 
     return {
       key,
-      label:           monthLabel(key),
-      energyGWh:       energyMWh != null ? +(energyMWh / 1000).toFixed(1) : null,
-      marketValueM:    marketValueDollars != null ? +(marketValueDollars / 1e6).toFixed(2) : null,
+      label:        monthLabel(key),
+      energyGWh:    energyMWh != null ? +(energyMWh / 1000).toFixed(1) : null,
+      energyMWh:    energyMWh != null ? +energyMWh.toFixed(0) : null,
+      marketValueM: marketValueDollars != null ? +(marketValueDollars / 1e6).toFixed(3) : null,
       gwap,
-      flatPrice:       fp != null ? +fp.toFixed(2) : null,
-      captureRate:     (gwap != null && fp != null && fp !== 0)
-                         ? +(gwap / fp * 100).toFixed(1) : null,
+      flatPrice:    fp != null ? +fp.toFixed(2) : null,
+      captureRate:  (gwap != null && fp != null && fp !== 0)
+                      ? +(gwap / fp * 100).toFixed(1) : null,
     };
   });
 
   const annualGWAP = totalEnergyMWh > 0
     ? +(totalMarketValue / totalEnergyMWh).toFixed(2) : null;
 
-  // Annual flat = weighted average of monthly prices by days in month
-  // Approximation: simple average of available monthly flat prices
   const annualFlatPrice = flatPriceCount > 0
     ? +(flatPriceSum / flatPriceCount).toFixed(2) : null;
 
   const captureRate = (annualGWAP != null && annualFlatPrice != null && annualFlatPrice !== 0)
     ? +(annualGWAP / annualFlatPrice * 100).toFixed(1) : null;
 
-  const totalWindGWh = totalEnergyMWh > 0
-    ? +(totalEnergyMWh / 1000).toFixed(0) : null;
-
-  const totalMarketValueM = totalMarketValue > 0
-    ? +(totalMarketValue / 1e6).toFixed(1) : null;
-
-  return { monthly, annualGWAP, annualFlatPrice, captureRate, totalWindGWh, totalMarketValueM };
+  return {
+    monthly,
+    annualGWAP,
+    annualFlatPrice,
+    captureRate,
+    totalWindGWh:      totalEnergyMWh > 0 ? +(totalEnergyMWh / 1000).toFixed(0) : null,
+    totalMarketValueM: totalMarketValue > 0 ? +(totalMarketValue / 1e6).toFixed(1) : null,
+  };
 }
 
 // ── Handler ────────────────────────────────────────────────────────────────────
@@ -267,13 +244,18 @@ module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
+  const region = (req.query.region || 'SA1').toUpperCase();
+  if (!REGIONS.includes(region)) {
+    return res.status(400).json({ error: `Invalid region. Use one of: ${REGIONS.join(', ')}` });
+  }
+
   const force    = req.query.force === 'true';
-  const cacheKey = 'gwap-sa-wind:v3:trailing12';
+  const cacheKey = `gwap-wind:v4:${region}:trailing12`;
 
   if (!force) {
     const cached = await kvGet(cacheKey);
     if (cached?.annualGWAP !== undefined) {
-      console.log('[gwap] cache hit');
+      console.log(`[gwap] cache hit: ${cacheKey}`);
       return res.status(200).json({ ...cached, fromCache: true });
     }
   }
@@ -282,15 +264,14 @@ module.exports = async function handler(req, res) {
     const range  = buildDateRange();
     const client = await getClient();
 
-    // Fetch wind energy+market_value AND flat price in parallel
     const [windData, flatPrices] = await Promise.all([
-      fetchWindData(client, range.dateStart, range.dateEnd),
-      fetchFlatPrice(client, range.dateStart, range.dateEnd),
+      fetchWindData(client, region, range.dateStart, range.dateEnd),
+      fetchFlatPrice(client, region, range.dateStart, range.dateEnd),
     ]);
 
     if (!Object.keys(windData).length) {
       return res.status(503).json({
-        error: 'No SA1 wind data returned from OpenElectricity. Try again shortly.',
+        error: `No ${region} wind data from OpenElectricity. The region may have no wind generation, or the API is temporarily unavailable.`,
       });
     }
 
@@ -299,7 +280,7 @@ module.exports = async function handler(req, res) {
 
     const result = {
       success:          true,
-      region:           'SA1',
+      region,
       fueltech:         'wind',
       periodLabel:      range.label,
       fetchedAt:        new Date().toISOString(),
@@ -312,7 +293,7 @@ module.exports = async function handler(req, res) {
     };
 
     await kvSet(cacheKey, result);
-    console.log(`[gwap] done — GWAP $${annualGWAP}/MWh | flat $${annualFlatPrice}/MWh | capture ${captureRate}% | ${totalWindGWh} GWh`);
+    console.log(`[gwap] done ${region} — GWAP $${annualGWAP}/MWh | flat $${annualFlatPrice}/MWh | capture ${captureRate}% | ${totalWindGWh} GWh`);
     return res.status(200).json({ ...result, fromCache: false });
 
   } catch (err) {
