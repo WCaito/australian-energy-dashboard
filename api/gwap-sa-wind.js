@@ -212,7 +212,7 @@ async function fetchFueltechData(client, region, fueltech, dateStart, dateEnd) {
       dateStart,
       dateEnd,
       primaryGrouping:   'network_region',
-      secondaryGrouping: 'fueltech',
+      secondaryGrouping: ['fueltech'],
     }
   );
 
