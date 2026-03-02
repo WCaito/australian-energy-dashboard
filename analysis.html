@@ -258,21 +258,13 @@
 <body>
 <div class="container">
 
-  <header>
-    <div class="header-inner">
-      <div>
-        <h1>Market Analysis</h1>
-        <p class="subtitle">Structural price analytics for commercial NEM decision-making — intraday shape, price duration curves and arbitrage metrics</p>
-      </div>
-      <nav class="header-nav">
-        <a href="australian-energy-market.html" class="nav-link">Live Prices</a>
-        <a href="historical-data.html"          class="nav-link">Historical</a>
-        <a href="facility-data.html"            class="nav-link">Generators</a>
-        <a href="bess-nsw.html"                 class="nav-link">NSW Batteries</a>
-        <a href="analysis.html"                 class="nav-link active">Analysis</a>
-      </nav>
-    </div>
-  </header>
+  <script>
+    window.NAV_TITLE    = 'Market Analysis';
+    window.NAV_SUBTITLE = 'Structural price analytics for commercial NEM decision-making — intraday shape, price duration curves, cannibalisation risk and arbitrage metrics.';
+    window.NAV_LIVE     = false;
+  </script>
+  <div id="site-nav"></div>
+  <script src="nav.js" data-active="analysis"></script>
 
   <!-- Controls -->
   <div class="controls-strip">
@@ -405,7 +397,132 @@ function populateKPIs(s, periodLabel) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   SECTION 1: INTRADAY PRICE SHAPE
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     SECTION 0: NEGATIVE PRICE FREQUENCY / CANNIBALISATION RISK
+  ═══════════════════════════════════════════════════════════════════════════ */
+
+  /**
+   * Build a bar chart showing the % of intervals with negative prices
+   * by hour of day, with seasonal overlays.
+   */
+  function buildNegFreqChart(canvasId, negFreq, region) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas || !negFreq || !negFreq.length) return;
+
+    const labels = negFreq.map(d => {
+      const h = d.hour;
+      if (h === 0)  return '12am';
+      if (h < 12)  return h + 'am';
+      if (h === 12) return '12pm';
+      return (h - 12) + 'pm';
+    });
+
+    const overall = negFreq.map(d => d.negPct);
+    const summer  = negFreq.map(d => d.negPctSummer);
+    const winter  = negFreq.map(d => d.negPctWinter);
+
+    const maxVal  = Math.max(...overall.filter(v => v !== null), 1);
+
+    new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'All seasons',
+            data: overall,
+            backgroundColor: 'rgba(37,99,235,0.55)',
+            borderColor:     'rgba(37,99,235,0.8)',
+            borderWidth: 1,
+            borderRadius: 2,
+            order: 3,
+          },
+          {
+            label: 'Summer (DJF)',
+            data: summer,
+            type: 'line',
+            borderColor: '#f59e0b',
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.3,
+            order: 1,
+          },
+          {
+            label: 'Winter (JJA)',
+            data: winter,
+            type: 'line',
+            borderColor: '#6366f1',
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.3,
+            order: 2,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: true,
+            position: 'top',
+            align: 'end',
+            labels: {
+              font: { family: "'IBM Plex Sans', sans-serif", size: 11 },
+              color: '#6b7280',
+              boxWidth: 16,
+              padding: 16,
+              usePointStyle: true,
+            },
+          },
+          tooltip: {
+            backgroundColor: '#fff',
+            borderColor: '#e5e7eb',
+            borderWidth: 1,
+            titleColor: '#111827',
+            bodyColor:  '#6b7280',
+            padding: 12,
+            callbacks: {
+              title: ctx => `Hour ending ${labels[ctx[0].dataIndex]}`,
+              label: ctx => {
+                const v = ctx.parsed.y;
+                return v !== null
+                  ? ` ${ctx.dataset.label}: ${v.toFixed(1)}% of intervals negative`
+                  : '';
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: {
+              font: { family: "'IBM Plex Mono', monospace", size: 10 },
+              color: '#9ca3af',
+              maxRotation: 0,
+              callback: (val, i) => i % 3 === 0 ? labels[i] : '',
+            },
+          },
+          y: {
+            min: 0,
+            max: Math.ceil(maxVal * 1.15),
+            grid: { color: '#f3f4f6' },
+            ticks: {
+              font: { family: "'IBM Plex Mono', monospace", size: 10 },
+              color: '#9ca3af',
+              callback: v => v + '%',
+            },
+          },
+        },
+      },
+    });
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     SECTION 1: INTRADAY PRICE SHAPE
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /**
@@ -1221,6 +1338,83 @@ function renderContent(data, windGwap, solarGwap) {
 
   document.getElementById('content').innerHTML = `
 
+    <!-- ══ SECTION 0: NEGATIVE PRICE FREQUENCY / CANNIBALISATION RISK ═════════ -->
+    <div class="section">
+      <div class="section-title">Negative Price Frequency — Cannibalisation Risk</div>
+      <p class="section-desc">
+        The percentage of 30-minute intervals that settled at a negative price (below $0/MWh),
+        broken down by hour of day and season. This is the key cannibalisation risk metric for
+        solar and wind developers: a high negative-price frequency during a generator's peak
+        output hours directly reduces realised revenue and depresses the GWAP discount to flat price.
+        Summer daytime hours in solar-heavy regions (especially SA) routinely exceed 20–40% negative
+        frequency — making midday generation commercially challenging without co-located storage.
+      </p>
+
+      <div class="triptych">
+        <div class="tri-cell">
+          <div class="tri-label">Worst Hour (All Seasons)</div>
+          <div class="tri-value red" id="nfWorstHour">—</div>
+          <div class="tri-desc">Hour with the highest share of negative-price intervals over the period.</div>
+        </div>
+        <div class="tri-cell">
+          <div class="tri-label">Worst Summer Hour</div>
+          <div class="tri-value amber" id="nfWorstSummer">—</div>
+          <div class="tri-desc">Peak cannibalisation risk for solar generation — typically midday Dec–Feb.</div>
+        </div>
+        <div class="tri-cell">
+          <div class="tri-label">Hours with &gt;10% Neg Rate</div>
+          <div class="tri-value blue" id="nfHighHours">—</div>
+          <div class="tri-desc">Number of distinct hours where more than 1 in 10 intervals is negative.</div>
+        </div>
+      </div>
+
+      <div class="chart-card" style="margin-top:20px">
+        <div class="chart-card-head">
+          <div>
+            <div class="chart-card-title">Negative Price Frequency by Hour of Day</div>
+            <div class="chart-card-meta" id="negFreqMeta">Loading…</div>
+          </div>
+          <div class="chart-legend">
+            <div class="legend-item"><div class="legend-swatch" style="background:#2563eb"></div>All seasons</div>
+            <div class="legend-item"><div class="legend-swatch" style="background:#f59e0b"></div>Summer (DJF)</div>
+            <div class="legend-item"><div class="legend-swatch" style="background:#6366f1"></div>Winter (JJA)</div>
+          </div>
+        </div>
+        <div class="chart-body"><canvas id="negFreqCanvas"></canvas></div>
+        <div class="chart-foot">
+          <div class="chart-foot-item">
+            <div class="foot-dot" style="background:#2563eb"></div>
+            Bars show all-season negative rate
+          </div>
+          <div class="chart-foot-item">
+            <div class="foot-dot" style="background:#f59e0b"></div>
+            Summer line often highest for solar regions (SA, VIC)
+          </div>
+          <div class="chart-foot-item">
+            <div class="foot-dot" style="background:#6366f1"></div>
+            Winter line typically lower — less solar, more stable dispatch
+          </div>
+        </div>
+      </div>
+
+      <div class="interp">
+        <p>
+          <strong>How to use this chart commercially:</strong> A bar above 15–20% at any hour means
+          that solar or wind generation during that window is uneconomic on average — the price is
+          negative roughly 1-in-5 intervals or more, eroding or inverting revenue. For project
+          developers, this chart directly informs co-location storage sizing: the hours with the
+          highest negative frequency are exactly when a co-located battery should be absorbing
+          rather than curtailing generation.
+        </p>
+        <p>
+          <strong>Trend watch:</strong> Negative price frequency in the NEM has grown materially
+          year-on-year as solar penetration increases, particularly in SA and VIC. Comparing
+          trailing-12-month data with calendar year selections reveals whether cannibalisation is
+          accelerating in your region of interest.
+        </p>
+      </div>
+    </div>
+
     <!-- ══ SECTION 1: INTRADAY PRICE SHAPE ══════════════════════════════════ -->
     <div class="section">
       <div class="section-title">Intraday Price Shape</div>
@@ -1408,8 +1602,34 @@ function renderContent(data, windGwap, solarGwap) {
     ${solarGwap ? renderGWAPSection(solarGwap, 'solar_utility') : ''}
   `;
 
+  /* Populate negative-frequency KPIs */
+  if (data.intradayNegFreq && data.intradayNegFreq.length) {
+    const nf = data.intradayNegFreq;
+    const fmtH = h => {
+      if (h === 0)  return '12am';
+      if (h < 12)  return h + 'am';
+      if (h === 12) return '12pm';
+      return (h - 12) + 'pm';
+    };
+
+    const worst = nf.reduce((a, b) => (b.negPct||0) > (a.negPct||0) ? b : a);
+    const worstSum = nf.reduce((a, b) => (b.negPctSummer||0) > (a.negPctSummer||0) ? b : a);
+    const highHours = nf.filter(d => (d.negPct||0) > 10).length;
+
+    const wh = document.getElementById('nfWorstHour');
+    const ws = document.getElementById('nfWorstSummer');
+    const hh = document.getElementById('nfHighHours');
+    if (wh) wh.textContent = worst.negPct != null ? `${fmtH(worst.hour)} · ${worst.negPct.toFixed(1)}%` : '—';
+    if (ws) ws.textContent = worstSum.negPctSummer != null ? `${fmtH(worstSum.hour)} · ${worstSum.negPctSummer.toFixed(1)}%` : '—';
+    if (hh) hh.textContent = highHours + ' hr' + (highHours !== 1 ? 's' : '');
+
+    const meta = document.getElementById('negFreqMeta');
+    if (meta) meta.textContent = `${reg} · ${data.periodLabel}`;
+  }
+
   /* Build charts after DOM settles */
   requestAnimationFrame(() => {
+    if (data.intradayNegFreq) buildNegFreqChart('negFreqCanvas', data.intradayNegFreq, reg);
     buildIntradayChart('intradayCanvas', data.intradayShape, reg);
     buildPDCChart('pdcCanvas', data.priceDuration, s, reg);
     if (windGwap)  buildGWAPChart('gwapWindCanvas',  windGwap.monthly,  windGwap.region,  'wind');
