@@ -417,23 +417,13 @@
 <body>
 
 <div class="container">
-    <header>
-    <div class="header-inner">
-      <div>
-        <h1>Generator Performance</h1>
-        <p class="subtitle">5-minute interval power output and regional spot price for 7 selected generators — last 8 days</p>
-        <p class="date-range" id="dateRange">Fetching data…</p>
-      </div>
-      <nav class="header-nav">
-        <a href="australian-energy-market.html" class="nav-link">Live Prices</a>
-        <a href="historical-data.html" class="nav-link">Historical</a>
-        <a href="facility-data.html" class="nav-link active">Generators</a>
-        <a href="bess-nsw.html" class="nav-link">NSW Batteries</a>
-        <a href="analysis.html" class="nav-link">Analysis</a>
-        <a href="analysis.html" class="nav-link">Analysis</a>
-      </nav>
-    </div>
-  </header>
+    <script>
+    window.NAV_TITLE    = 'Generator Data';
+    window.NAV_SUBTITLE = 'Facility-level generation, capacity and dispatch data across the NEM.';
+    window.NAV_LIVE     = false;
+  </script>
+  <div id="site-nav"></div>
+  <script src="nav.js" data-active="generators"></script>
 
   <!-- Legend -->
   <div class="legend" id="legend" style="display:none">
