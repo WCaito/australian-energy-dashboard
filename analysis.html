@@ -278,7 +278,7 @@
   <div class="controls-strip">
     <div class="ctrl-group">
       <label for="selRegion">Region</label>
-      <select id="selRegion">
+      <select id="selRegion" onchange="loadAnalysis()">
         <option value="NSW1">New South Wales (NSW1)</option>
         <option value="VIC1">Victoria (VIC1)</option>
         <option value="QLD1">Queensland (QLD1)</option>
@@ -288,7 +288,7 @@
     </div>
     <div class="ctrl-group">
       <label for="selYear">Period</label>
-      <select id="selYear">
+      <select id="selYear" onchange="loadAnalysis()">
         <option value="trailing12">Trailing 12 months</option>
         <option value="2025">Calendar year 2025</option>
         <option value="2024">Calendar year 2024</option>
@@ -979,7 +979,7 @@ function downloadGWAP(gwap) {
     ectx.drawImage(canvas, 0, 0);
 
     const link = document.createElement('a');
-    link.download = `gwap-${ftName}-${region}-trailing12.png`;
+    link.download = `gwap-${ftName}-${region}-${gwap.year || 'trailing12'}.png`;
     link.href = exportCanvas.toDataURL('image/png');
     link.click();
   }
@@ -1059,7 +1059,7 @@ function downloadGWAP(gwap) {
   const blob = new Blob([lines.join('\r\n')], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  link.download = `gwap-${ftName}-${region}-trailing12-methodology.csv`;
+  link.download = `gwap-${ftName}-${region}-${gwap.year || 'trailing12'}-methodology.csv`;
   link.href = url;
   // Small delay so PNG download doesn't race
   setTimeout(() => { link.click(); URL.revokeObjectURL(url); }, 300);
@@ -1160,7 +1160,7 @@ function renderGWAPSection(gwap, fueltech) {
         <div class="chart-card-head">
           <div>
             <div class="chart-card-title">${region} ${ftName} GWAP vs Flat ${region} Price — Monthly</div>
-            <div class="chart-card-meta">${gwap.periodLabel} · ${totalGen != null ? totalGen.toLocaleString() + ' GWh total generation' : ''} · Source: OpenElectricity</div>
+            <div class="chart-card-meta">${gwap.periodLabel} · ${totalGen != null ? totalGen.toLocaleString() + ' GWh total generation' : ''} · ${gwap.fromCache ? '📦 cached' : '🔄 live'} · key: ${gwap.cacheKey || '—'} · Source: OpenElectricity</div>
           </div>
           <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
             <div class="chart-legend">
@@ -1449,8 +1449,8 @@ async function loadAnalysis(force = false) {
 
   try {
     const url       = `${API}/api/analysis?region=${region}&year=${year}${force?'&force=true':''}`;
-    const windUrl   = `${API}/api/gwap-sa-wind?region=${region}&fueltech=wind${force?'&force=true':''}`;
-    const solarUrl  = `${API}/api/gwap-sa-wind?region=${region}&fueltech=solar_utility${force?'&force=true':''}`;
+    const windUrl   = `${API}/api/gwap-sa-wind?region=${region}&fueltech=wind&year=${year}${force?'&force=true':''}`;
+    const solarUrl  = `${API}/api/gwap-sa-wind?region=${region}&fueltech=solar_utility&year=${year}${force?'&force=true':''}`;
 
     // Fetch all three in parallel — GWAP calls are non-fatal
     const [resp, windResp, solarResp] = await Promise.all([
@@ -1472,13 +1472,19 @@ async function loadAnalysis(force = false) {
     let windGwap = null;
     if (windResp?.ok) {
       windGwap = await windResp.json().catch(() => null);
+      console.log('[gwap wind] response:', windGwap?._debug ?? windGwap?.periodLabel ?? 'null');
       if (!windGwap?.monthly?.length) windGwap = null;
+    } else {
+      console.warn('[gwap wind] fetch failed:', windResp?.status);
     }
 
     let solarGwap = null;
     if (solarResp?.ok) {
       solarGwap = await solarResp.json().catch(() => null);
+      console.log('[gwap solar] response:', solarGwap?._debug ?? solarGwap?.periodLabel ?? 'null');
       if (!solarGwap?.monthly?.length) solarGwap = null;
+    } else {
+      console.warn('[gwap solar] fetch failed:', solarResp?.status);
     }
 
     window._lastGwapData      = windGwap;   // used by wind export button
