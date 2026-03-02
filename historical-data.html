@@ -452,22 +452,13 @@
 </head>
 <body>
   <div class="container">
-        <header>
-      <div class="header-inner">
-        <div>
-          <h1>Historical Price Data</h1>
-          <p class="subtitle">Monthly average and maximum spot prices from AEMO settlement data across all NEM regions</p>
-        </div>
-        <nav class="header-nav">
-        <a href="australian-energy-market.html" class="nav-link">Live Prices</a>
-        <a href="historical-data.html" class="nav-link active">Historical</a>
-        <a href="facility-data.html" class="nav-link">Generators</a>
-        <a href="bess-nsw.html" class="nav-link">NSW Batteries</a>
-        <a href="analysis.html" class="nav-link">Analysis</a>
-        <a href="analysis.html" class="nav-link">Analysis</a>
-      </nav>
-      </div>
-    </header>
+        <script>
+    window.NAV_TITLE    = 'Historical Data';
+    window.NAV_SUBTITLE = 'Price and demand trends across all NEM regions with multi-year comparisons.';
+    window.NAV_LIVE     = false;
+  </script>
+  <div id="site-nav"></div>
+  <script src="nav.js" data-active="historical"></script>
 
     <div class="info-box"><div class="info-title">About This Data</div>
       <div class="info-text">This page displays real historical electricity price data from the OpenElectricity API, which aggregates data from AEMO. Data shown are daily interval spot prices across the NEM, aggregated to monthly statistics with event analysis.</div>
