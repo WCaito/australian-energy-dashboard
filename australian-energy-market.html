@@ -1,727 +1,537 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Australian Energy Market Live</title>
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <style>
-  /* ── Reset ────────────────────────────────────────────────────────────── */
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Australian Energy Market Live</title>
+  <meta name="description" content="Real-time NEM spot prices, interconnector flows and energy news across all five Australian regions.">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-  /* ── Tokens ────────────────────────────────────────────────────────────── */
   :root {
-    --bg:           #ffffff;
-    --bg-subtle:    #f9fafb;
-    --border:       #e5e7eb;
-    --text-1:       #111827;
-    --text-2:       #6b7280;
-    --text-3:       #9ca3af;
-    --accent:       #2563eb;
-    --accent-bg:    #eff6ff;
-    --positive:     #059669;
-    --negative:     #dc2626;
+    --bg:        #ffffff;
+    --bg-subtle: #f9fafb;
+    --border:    #e5e7eb;
+    --text-1:    #111827;
+    --text-2:    #6b7280;
+    --text-3:    #9ca3af;
+    --accent:    #2563eb;
+    --positive:  #059669;
+    --negative:  #dc2626;
+    --amber:     #d97706;
   }
-
-  /* ── Base ──────────────────────────────────────────────────────────────── */
   body {
     font-family: 'IBM Plex Sans', system-ui, sans-serif;
-    background: var(--bg);
-    color: var(--text-1);
-    min-height: 100vh;
-    line-height: 1.6;
+    background: var(--bg); color: var(--text-1);
+    min-height: 100vh; line-height: 1.6;
     -webkit-font-smoothing: antialiased;
   }
+  .container { max-width: 1280px; margin: 0 auto; padding: 0 28px 96px; }
 
-  /* ── Layout ────────────────────────────────────────────────────────────── */
-  .container {
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: 0 28px 96px;
-  }
-
-  /* ── Header ────────────────────────────────────────────────────────────── */
-  header {
-    padding: 44px 0 32px;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 48px;
-  }
-  .header-inner {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 32px;
-    flex-wrap: wrap;
-  }
-  h1 {
-    font-family: 'IBM Plex Serif', Georgia, serif;
-    font-size: 2.125rem;
-    font-weight: 600;
-    line-height: 1.2;
-    letter-spacing: -0.02em;
-    color: var(--text-1);
-    margin-bottom: 8px;
-  }
-  .subtitle {
-    font-size: 0.9375rem;
-    color: var(--text-2);
-    font-weight: 400;
-    max-width: 520px;
-    line-height: 1.5;
-  }
-  .date-range {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.6875rem;
-    color: var(--text-3);
-    margin-top: 8px;
-    letter-spacing: 0.01em;
-  }
-
-  /* ── Navigation ────────────────────────────────────────────────────────── */
-  .header-nav {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    padding-top: 6px;
-  }
-  .nav-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 7px 15px;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    text-decoration: none;
-    border: 1px solid var(--border);
-    color: var(--text-2);
-    background: var(--bg);
-    transition: border-color 0.15s, color 0.15s, background 0.15s;
-    white-space: nowrap;
-    font-family: 'IBM Plex Sans', sans-serif;
-  }
-  .nav-link:hover {
-    border-color: var(--text-1);
-    color: var(--text-1);
-  }
-  .nav-link.active {
-    background: var(--text-1);
-    border-color: var(--text-1);
-    color: #ffffff;
-  }
-  .nav-link.active:hover {
-    background: var(--accent);
-    border-color: var(--accent);
-  }
-
-  /* ── Section title ─────────────────────────────────────────────────────── */
   .section-title {
     font-family: 'IBM Plex Serif', Georgia, serif;
-    font-size: 1.25rem;
-    font-weight: 600;
-    color: var(--text-1);
-    letter-spacing: -0.01em;
-    margin-bottom: 20px;
+    font-size: 1.25rem; font-weight: 600; color: var(--text-1);
+    letter-spacing: -0.01em; margin-bottom: 6px;
+  }
+  .section-desc {
+    font-size: 0.875rem; color: var(--text-2); line-height: 1.65;
+    max-width: 720px; margin-bottom: 20px;
   }
 
-  /* ── Stat grid (shared across pages) ──────────────────────────────────── */
-  .stat-label {
-    font-size: 0.6875rem;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: var(--text-3);
-    margin-bottom: 5px;
-    font-weight: 500;
-  }
-  .stat-value {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.9375rem;
-    font-weight: 500;
-    color: var(--text-1);
-  }
-  .stat-value.muted  { color: var(--text-3); font-style: italic; }
-  .stat-value.green  { color: var(--positive); }
-  .stat-value.red    { color: var(--negative); }
-
-  /* ── Badges ────────────────────────────────────────────────────────────── */
-  .badge {
-    display: inline-block;
-    font-size: 0.625rem;
-    font-weight: 600;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
-    padding: 3px 8px;
-    border: 1px solid currentColor;
-    white-space: nowrap;
-  }
-
-  /* ── Spinner ───────────────────────────────────────────────────────────── */
   .spinner {
-    width: 32px;
-    height: 32px;
-    border: 2px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
+    width: 32px; height: 32px; border: 2px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-
-  /* ── Loading screen ────────────────────────────────────────────────────── */
-  .loading-screen {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 96px 24px;
-    text-align: center;
-    gap: 16px;
-    color: var(--text-2);
-  }
-  .loading-msg {
-    font-size: 0.9rem;
-    color: var(--text-2);
-  }
-  .loading-sub {
-    font-size: 0.8125rem;
-    color: var(--text-3);
-    font-family: 'IBM Plex Mono', monospace;
+  .loading {
+    padding: 48px 24px; text-align: center; color: var(--text-3);
+    font-size: 0.875rem; display: flex; align-items: center;
+    justify-content: center; gap: 12px;
   }
 
-  /* ── Page footer ───────────────────────────────────────────────────────── */
-  .page-footer {
-    margin-top: 64px;
-    padding-top: 20px;
-    border-top: 1px solid var(--border);
-    font-size: 0.75rem;
-    color: var(--text-3);
-    display: flex;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  .page-footer a {
-    color: var(--text-2);
-    text-decoration: underline;
-    text-underline-offset: 2px;
-  }
-
-  /* ── Cache status bar ──────────────────────────────────────────────────── */
-  #globalCacheBar {
-    position: fixed; bottom: 0; left: 0; right: 0;
-    background: rgba(255,255,255,0.97);
-    backdrop-filter: blur(8px);
-    border-top: 1px solid var(--border);
-    padding: 10px 28px;
-    display: flex; align-items: center; gap: 12px;
-    font-family: 'IBM Plex Sans', sans-serif;
-    font-size: 0.75rem; color: var(--text-2);
-    z-index: 999;
-  }
-  #globalCacheBar .gcb-dot {
-    width: 7px; height: 7px; border-radius: 50%;
-    background: var(--text-3); flex-shrink: 0;
-    transition: background 0.3s;
-  }
-  #globalCacheBar .gcb-dot.fresh  { background: var(--positive); }
-  #globalCacheBar .gcb-dot.stale  { background: #f59e0b; }
-  #globalCacheBar .gcb-dot.miss   { background: var(--negative); }
-  #globalCacheBar .gcb-text { flex: 1; }
-  #globalCacheBar .gcb-btn {
-    padding: 5px 14px;
-    background: var(--text-1); color: #fff;
-    border: none; cursor: pointer;
-    font-size: 0.75rem; font-family: inherit; font-weight: 500;
-    flex-shrink: 0; transition: background 0.15s;
-  }
-  #globalCacheBar .gcb-btn:hover { background: var(--accent); }
-  #globalCacheBar .gcb-btn:disabled { background: var(--text-3); cursor: not-allowed; }
-  @keyframes gcb-spin { to { transform: rotate(360deg); } }
-  .gcb-spinner {
-    display: inline-block; width: 10px; height: 10px;
-    border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff;
-    border-radius: 50%; animation: gcb-spin 0.7s linear infinite;
-    margin-right: 5px; vertical-align: middle;
-  }
-  body { padding-bottom: 44px; }
-
-  /* ── Responsive ────────────────────────────────────────────────────────── */
-  @media (max-width: 768px) {
-    .container { padding: 0 16px 96px; }
-    h1 { font-size: 1.75rem; }
-    .header-inner { flex-direction: column; gap: 20px; }
-  }
-
-  /* ── Live indicator ────────────────────────────────────────────────────── */
-  .live-indicator {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 12px;
-    font-size: 0.8125rem;
-    color: var(--text-3);
-  }
-  .live-dot {
-    width: 6px; height: 6px;
-    background: var(--positive);
-    border-radius: 50%;
-    animation: pulse 2s ease-in-out infinite;
-  }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
-
-  /* ── Price cards ───────────────────────────────────────────────────────── */
+  /* ── Price cards ─────────────────────────────────────────────────────── */
   .dashboard {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 1px;
-    background: var(--border);
-    border: 1px solid var(--border);
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1px; background: var(--border); border: 1px solid var(--border);
     margin-bottom: 64px;
   }
-  .card {
-    background: var(--bg);
-    padding: 24px 20px;
-    transition: background 0.15s;
-  }
+  .card { background: var(--bg); padding: 24px 20px; transition: background 0.15s; }
   .card:hover { background: var(--bg-subtle); }
   .region-tag {
-    font-size: 0.6875rem;
-    font-weight: 600;
-    color: var(--text-3);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    margin-bottom: 10px;
+    font-size: 0.6875rem; font-weight: 600; color: var(--text-3);
+    letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 10px;
   }
   .price {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 1.75rem;
-    font-weight: 500;
-    line-height: 1.1;
-    color: var(--text-1);
+    font-family: 'IBM Plex Mono', monospace; font-size: 1.75rem;
+    font-weight: 500; line-height: 1.1; color: var(--text-1);
   }
-  .price.negative { color: var(--negative); }
-  .price-unit {
-    font-size: 0.75rem;
-    color: var(--text-3);
-    font-weight: 400;
-    margin-left: 2px;
+  .price.neg-price  { color: var(--accent); }
+  .price.high-price { color: var(--amber); }
+  .price.ext-price  { color: var(--negative); }
+  .price-unit { font-size: 0.75rem; color: var(--text-3); font-weight: 400; margin-left: 2px; }
+  .change { display: inline-block; font-size: 0.75rem; margin-top: 8px; color: var(--text-3); }
+  .change.pos { color: var(--positive); }
+  .change.neg { color: var(--negative); }
+  .price-alert {
+    display: inline-block; font-size: 0.625rem; font-weight: 600;
+    letter-spacing: 0.07em; text-transform: uppercase;
+    padding: 2px 7px; border: 1px solid currentColor; margin-top: 6px;
   }
-  .change {
-    display: inline-block;
-    font-size: 0.75rem;
-    margin-top: 8px;
-    color: var(--text-3);
+  .price-alert.neg  { color: var(--accent); }
+  .price-alert.high { color: var(--amber); }
+  .price-alert.ext  { color: var(--negative); }
+
+  /* ── Interconnector section ──────────────────────────────────────────── */
+  .interconnect-section { margin-bottom: 64px; }
+  .interconnect-layout {
+    display: grid; grid-template-columns: 300px 1fr;
+    gap: 1px; background: var(--border); border: 1px solid var(--border);
   }
-  .change.positive { color: var(--positive); }
-  .change.negative { color: var(--negative); }
+  @media (max-width: 760px) {
+    .interconnect-layout { grid-template-columns: 1fr; }
+  }
+
+  .nem-map-panel {
+    background: var(--bg); padding: 28px 20px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  .nem-map-panel svg { width: 100%; max-width: 260px; height: auto; }
+
+  .ic-table-panel { background: var(--bg); padding: 28px 24px; }
+  .ic-table-title {
+    font-size: 0.6875rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--text-3); margin-bottom: 16px;
+  }
+  .ic-row {
+    display: grid; grid-template-columns: 1fr 80px 110px;
+    align-items: center; gap: 16px;
+    padding: 14px 0; border-bottom: 1px solid var(--border);
+  }
+  .ic-row:last-child { border-bottom: none; padding-bottom: 0; }
+  .ic-row:first-child { padding-top: 0; }
+  .ic-name { font-size: 0.875rem; font-weight: 500; color: var(--text-1); }
+  .ic-sub  { font-size: 0.75rem; color: var(--text-3); margin-top: 2px; }
+  .ic-flow-bar {
+    height: 6px; background: var(--border); border-radius: 3px;
+    position: relative; overflow: visible;
+  }
+  .ic-flow-fill {
+    position: absolute; top: 0; bottom: 0; border-radius: 3px;
+    transition: width 0.6s ease;
+  }
+  .ic-flow-fill.fwd { background: var(--accent);   left: 50%; }
+  .ic-flow-fill.rev { background: var(--positive); right: 50%; }
+  .ic-mw {
+    font-family: 'IBM Plex Mono', monospace; font-size: 0.8125rem;
+    font-weight: 500; text-align: right;
+  }
+  .ic-mw.fwd  { color: var(--accent); }
+  .ic-mw.rev  { color: var(--positive); }
+  .ic-mw.zero { color: var(--text-3); }
+
+  .ni-strip {
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    gap: 1px; background: var(--border);
+    border: 1px solid var(--border); border-top: none;
+  }
+  .ni-cell { background: var(--bg-subtle); padding: 10px 14px; }
+  .ni-label {
+    font-size: 0.625rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.07em; color: var(--text-3); margin-bottom: 3px;
+  }
+  .ni-value {
+    font-family: 'IBM Plex Mono', monospace; font-size: 0.8125rem; font-weight: 500;
+  }
+  .ni-value.imp { color: var(--positive); }
+  .ni-value.exp { color: var(--accent); }
+  .ni-value.bal { color: var(--text-3); }
+  .ni-dir { font-size: 0.625rem; color: var(--text-3); margin-top: 1px; }
+  @media (max-width: 540px) { .ni-strip { grid-template-columns: repeat(3, 1fr); } }
 
   /* ── News ──────────────────────────────────────────────────────────────── */
-  .news-list {
-    display: flex;
-    flex-direction: column;
-  }
+  .news-list { display: flex; flex-direction: column; }
   .news-item {
-    padding: 24px 0;
-    border-bottom: 1px solid var(--border);
-    cursor: pointer;
-    transition: background 0.15s;
+    padding: 24px 0; border-bottom: 1px solid var(--border);
+    cursor: pointer; transition: background 0.15s;
   }
   .news-item:first-child { padding-top: 0; }
   .news-item:hover {
-    background: var(--bg-subtle);
-    margin: 0 -16px;
-    padding-left: 16px;
-    padding-right: 16px;
+    background: var(--bg-subtle); margin: 0 -16px;
+    padding-left: 16px; padding-right: 16px;
   }
   .news-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 16px;
-    margin-bottom: 8px;
+    display: flex; justify-content: space-between;
+    align-items: baseline; gap: 16px; margin-bottom: 8px;
   }
   .news-source {
-    font-size: 0.75rem;
-    color: var(--text-3);
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    font-size: 0.75rem; color: var(--text-3); font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.05em;
   }
   .news-time {
-    font-size: 0.75rem;
-    color: var(--text-3);
-    white-space: nowrap;
+    font-size: 0.75rem; color: var(--text-3); white-space: nowrap;
     font-family: 'IBM Plex Mono', monospace;
   }
-  .news-categories {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    margin-bottom: 8px;
-  }
+  .news-categories { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
   .category-tag {
-    font-size: 0.625rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    padding: 2px 7px;
-    border: 1px solid var(--border);
-    color: var(--text-3);
-    background: var(--bg-subtle);
+    font-size: 0.625rem; font-weight: 600; letter-spacing: 0.06em;
+    text-transform: uppercase; padding: 2px 7px;
+    border: 1px solid var(--border); color: var(--text-3); background: var(--bg-subtle);
   }
   .news-title {
     font-family: 'IBM Plex Serif', Georgia, serif;
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--text-1);
-    margin-bottom: 6px;
-    line-height: 1.4;
+    font-size: 1rem; font-weight: 600; color: var(--text-1);
+    margin-bottom: 6px; line-height: 1.4;
   }
-  .news-excerpt {
-    font-size: 0.875rem;
-    color: var(--text-2);
-    line-height: 1.55;
-  }
+  .news-excerpt { font-size: 0.875rem; color: var(--text-2); line-height: 1.55; }
 
-  /* ── Refresh panel ─────────────────────────────────────────────────────── */
-  .refresh-panel {
-    position: fixed;
-    bottom: 52px;
-    right: 28px;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 8px;
-    z-index: 100;
-  }
-  .cache-status-badge {
-    background: rgba(255,255,255,0.97);
-    backdrop-filter: blur(8px);
-    border: 1px solid var(--border);
-    padding: 5px 12px;
-    font-size: 0.75rem;
-    color: var(--text-2);
-    display: none;
-    font-family: 'IBM Plex Sans', sans-serif;
-  }
-  .cache-status-badge.visible { display: block; }
-  .cache-status-badge.stale   { color: #b45309; border-color: #fcd34d; }
-  .cache-status-badge.fresh   { color: #065f46; border-color: #6ee7b7; }
-  .cache-status-badge.missing { color: #991b1b; border-color: #fca5a5; }
-  .refresh-btn {
-    padding: 8px 18px;
-    background: var(--text-1);
-    color: #ffffff;
-    border: none;
-    font-family: 'IBM Plex Sans', sans-serif;
-    font-weight: 500;
-    font-size: 0.8125rem;
-    cursor: pointer;
-    transition: background 0.15s;
-  }
-  .refresh-btn:hover { background: var(--accent); }
-  .refresh-btn:disabled { background: var(--text-3); cursor: not-allowed; }
-  @keyframes spin-inline { to { transform: rotate(360deg); } }
-  .spinner-inline {
-    display: inline-block; width: 11px; height: 11px;
-    border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff;
-    border-radius: 50%; animation: spin-inline 0.7s linear infinite;
-    margin-right: 6px; vertical-align: middle;
-  }
-
-  /* ── Loading inline ────────────────────────────────────────────────────── */
-  .loading {
-    padding: 48px 24px;
-    text-align: center;
-    color: var(--text-3);
-    font-size: 0.875rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-  }
-
-  /* ── Footer ────────────────────────────────────────────────────────────── */
   footer {
-    margin-top: 64px;
-    padding-top: 20px;
+    margin-top: 64px; padding-top: 20px;
     border-top: 1px solid var(--border);
-    font-size: 0.75rem;
-    color: var(--text-3);
-    display: flex;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 8px;
+    font-size: 0.75rem; color: var(--text-3);
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
   }
-
   </style>
 </head>
 <body>
-    <div class="container">
-          <header>
-    <div class="header-inner">
-      <div>
-        <h1>Australian Energy Market</h1>
-        <p class="subtitle">Real-time NEM spot prices and energy news across all five regions</p>
-        <div class="live-indicator">
-          <div class="live-dot"></div>
-          Live · Updates every 5 minutes · AEMO public data
-        </div>
-      </div>
-      <nav class="header-nav">
-        <a href="australian-energy-market.html" class="nav-link active">Live Prices</a>
-        <a href="historical-data.html" class="nav-link">Historical</a>
-        <a href="facility-data.html" class="nav-link">Generators</a>
-        <a href="bess-nsw.html" class="nav-link">NSW Batteries</a>
-        <a href="analysis.html" class="nav-link">Analysis</a>
-        <a href="analysis.html" class="nav-link">Analysis</a>
-      </nav>
-    </div>
-  </header>
-
-        <section>
-            <h2 class="section-title">Spot Prices by State</h2>
-            <div id="dashboard" class="dashboard">
-                <div class="loading">
-                    <div class="spinner"></div>
-                    Loading market data...
-                </div>
-            </div>
-        </section>
-
-        <section class="news-section">
-            <h2 class="section-title">Latest Energy News</h2>
-            <div id="news" class="news-list">
-                <div class="loading">
-                    <div class="spinner"></div>
-                    Fetching latest news...
-                </div>
-            </div>
-        </section>
-
-        <footer>
-            <p>Data sourced from AEMO and Australian energy news providers</p>
-            <p>Last fetched: <span id="lastUpdate">—</span> &nbsp;·&nbsp; Cached: <span id="cacheAge">checking…</span></p>
-        </footer>
-    </div>
-
-    <div class="refresh-panel">
-        <div id="cacheStatusBadge" class="cache-status-badge"></div>
-        <button class="refresh-btn" id="refreshBtn" onclick="handleRefresh()">Refresh Data</button>
-    </div>
+  <div class="container">
 
     <script>
-        // ─── Configuration ────────────────────────────────────────────────────────
-        const API_BASE = window.location.protocol === 'file:'
-            ? 'http://localhost:3000'
-            : window.location.origin;
-
-        // ─── Cache Status ─────────────────────────────────────────────────────────
-        async function loadCacheStatus() {
-            try {
-                const resp = await fetch(`${API_BASE}/api/cache-status`);
-                if (!resp.ok) return;
-                const status = await resp.json();
-
-                const badge = document.getElementById('cacheStatusBadge');
-                const cacheAgeEl = document.getElementById('cacheAge');
-
-                if (!status.redisConfigured) {
-                    badge.textContent = '⚠ Redis not configured — data caching disabled';
-                    badge.className = 'cache-status-badge visible missing';
-                    if (cacheAgeEl) cacheAgeEl.textContent = 'Redis not configured';
-                    return;
-                }
-
-                // Filter to only the entries this page uses
-                const pageEntries = (status.entries || []).filter(e =>
-                    e.label === 'Live Prices' || e.label === 'Energy News'
-                );
-                const present = pageEntries.filter(e => e.present);
-                const ages = present.map(e => e.ageMinutes).filter(n => n !== null);
-                const maxAge = ages.length ? Math.max(...ages) : null;
-                const allPresent = pageEntries.length > 0 && present.length === pageEntries.length;
-
-                function ageHuman(m) {
-                    if (!m || m < 1) return 'just now';
-                    if (m < 60) return Math.round(m) + ' min ago';
-                    const h = Math.round(m / 60);
-                    return h < 24 ? h + ' hr ago' : Math.round(h / 24) + ' days ago';
-                }
-                const human = maxAge !== null ? ageHuman(maxAge) : '—';
-                if (cacheAgeEl) cacheAgeEl.textContent = human;
-
-                if (!allPresent) {
-                    badge.textContent = '⚠ No cached data — click Refresh';
-                    badge.className = 'cache-status-badge visible missing';
-                } else if (maxAge !== null && maxAge > 23 * 60) {
-                    badge.textContent = `⏱ Cached ${human} — consider refreshing`;
-                    badge.className = 'cache-status-badge visible stale';
-                } else if (maxAge !== null) {
-                    badge.textContent = `✓ Cached ${human}`;
-                    badge.className = 'cache-status-badge visible fresh';
-                    setTimeout(() => { badge.className = 'cache-status-badge'; }, 5000);
-                }
-            } catch (err) {
-                console.warn('[cache-status]', err.message);
-            }
-        }
-
-        // ─── Refresh Button ───────────────────────────────────────────────────────
-        // Only refreshes the two endpoints this page uses: live-prices and news.
-        // Stays well under the 60 s Vercel function timeout.
-        async function handleRefresh() {
-            const btn = document.getElementById('refreshBtn');
-            btn.disabled = true;
-            btn.innerHTML = '<span class="spinner-inline"></span>Refreshing…';
-
-            const badge = document.getElementById('cacheStatusBadge');
-            badge.textContent = 'Fetching fresh prices and news…';
-            badge.className = 'cache-status-badge visible';
-
-            try {
-                // Force-refresh only this page's two endpoints in parallel
-                const [pricesResp, newsResp] = await Promise.all([
-                    fetch(`${API_BASE}/api/live-prices?force=true`),
-                    fetch(`${API_BASE}/api/news?force=true`),
-                ]);
-
-                const allOk = pricesResp.ok && newsResp.ok;
-
-                if (allOk) {
-                    badge.textContent = '✓ Prices and news refreshed';
-                    badge.className = 'cache-status-badge visible fresh';
-                } else {
-                    badge.textContent = '⚠ One or more fetches failed — check console';
-                    badge.className = 'cache-status-badge visible stale';
-                }
-
-                // Re-render from the now-warm cache
-                await loadAllData();
-                await loadCacheStatus();
-
-            } catch (err) {
-                console.error('[refresh]', err);
-                badge.textContent = '⚠ Refresh failed: ' + err.message;
-                badge.className = 'cache-status-badge visible missing';
-            } finally {
-                btn.disabled = false;
-                btn.textContent = 'Refresh Data';
-            }
-        }
-
-        // ─── Live Prices ──────────────────────────────────────────────────────────
-        function showPriceLoading() {
-            document.getElementById('dashboard').innerHTML =
-                '<div class="loading"><div class="spinner"></div>Loading market data…</div>';
-        }
-
-        function renderDashboard(data) {
-            const dashboard = document.getElementById('dashboard');
-            dashboard.innerHTML = data.map(item => {
-                const priceNum = parseFloat(item.price);
-                const changeNum = parseFloat(item.change || 0);
-                const isNeg = changeNum < 0;
-                const priceClass = priceNum < 0 ? 'negative' : '';
-                return `
-                <div class="card">
-                    <div class="card-header">
-                        <div class="region-tag">${item.region}</div>
-                    </div>
-                    <div class="price ${priceClass}">
-                        $${priceNum.toFixed(2)}<span class="price-unit">/MWh</span>
-                    </div>
-                    <div class="change ${isNeg ? 'negative' : 'positive'}">
-                        ${isNeg ? '↓' : '↑'} ${Math.abs(changeNum).toFixed(1)}% vs avg
-                    </div>
-                </div>`;
-            }).join('');
-        }
-
-        function renderPriceError(msg) {
-            document.getElementById('dashboard').innerHTML =
-                `<div class="loading" style="color:#dc2626">⚠ ${msg}</div>`;
-        }
-
-        async function loadPrices() {
-            try {
-                const resp = await fetch(`${API_BASE}/api/live-prices`);
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                const result = await resp.json();
-                if (result.success && result.data && result.data.length > 0) {
-                    renderDashboard(result.data);
-                    const ts = result.cachedAt || result.fetchedAt || new Date().toISOString();
-                    document.getElementById('lastUpdate').textContent =
-                        new Date(ts).toLocaleString('en-AU', {
-                            timeZone: 'Australia/Sydney',
-                            dateStyle: 'medium',
-                            timeStyle: 'short',
-                        }) + (result.fromCache ? ' (cached)' : ' (live)');
-                } else {
-                    throw new Error('No price data in response');
-                }
-            } catch (err) {
-                console.error('[prices]', err);
-                renderPriceError('Could not load live prices.');
-            }
-        }
-
-        // ─── News ─────────────────────────────────────────────────────────────────
-        function showNewsLoading() {
-            document.getElementById('news').innerHTML =
-                '<div class="loading"><div class="spinner"></div>Fetching latest news…</div>';
-        }
-
-        function renderNews(articles) {
-            const news = document.getElementById('news');
-            if (!articles || articles.length === 0) {
-                news.innerHTML = '<div class="loading">No news articles available.</div>';
-                return;
-            }
-            news.innerHTML = articles.map(a => `
-                <div class="news-item" onclick="window.open('${a.url}', '_blank')" style="cursor:pointer">
-                    <div class="news-header">
-                        <span class="news-source">${a.source}</span>
-                        <span class="news-time">${a.time}</span>
-                    </div>
-                    <div class="news-categories">
-                        ${(a.categories || []).map(c =>
-                            `<span class="category-tag ${c.toLowerCase().replace(/\s+/g, '-')}">${c}</span>`
-                        ).join('')}
-                    </div>
-                    <h3 class="news-title">${a.title}</h3>
-                    <p class="news-excerpt">${a.excerpt}</p>
-                </div>`).join('');
-        }
-
-        async function loadNews() {
-            try {
-                const resp = await fetch(`${API_BASE}/api/news`);
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                const result = await resp.json();
-                if (result.articles && result.articles.length > 0) {
-                    renderNews(result.articles);
-                } else {
-                    throw new Error('No articles in response');
-                }
-            } catch (err) {
-                console.error('[news]', err);
-                document.getElementById('news').innerHTML =
-                    '<div class="loading" style="color:#dc2626">⚠ Could not load news articles.</div>';
-            }
-        }
-
-        // ─── Bootstrap ────────────────────────────────────────────────────────────
-        async function loadAllData() {
-            showPriceLoading();
-            showNewsLoading();
-            await Promise.all([loadPrices(), loadNews()]);
-        }
-
-        loadAllData();
-        loadCacheStatus();
-
-        // Cache status refreshes every 5 minutes to keep age display current
-        setInterval(loadCacheStatus, 5 * 60 * 1000);
+      window.NAV_TITLE    = 'Australian Energy Market';
+      window.NAV_SUBTITLE = 'Real-time NEM spot prices, interconnector flows and energy news across all five regions.';
+      window.NAV_LIVE     = true;
     </script>
+    <div id="site-nav"></div>
+    <script src="nav.js" data-active="live"></script>
+
+    <!-- Spot Prices -->
+    <section>
+      <h2 class="section-title">Spot Prices by State</h2>
+      <p class="section-desc">
+        Current 5-minute dispatch prices from AEMO. Prices above $300/MWh are flagged amber; above
+        $1,000/MWh are flagged red. Negative prices indicate oversupply — typically during high
+        renewable generation with low demand.
+      </p>
+      <div id="dashboard" class="dashboard">
+        <div class="loading"><div class="spinner"></div>Loading market data…</div>
+      </div>
+    </section>
+
+    <!-- Interconnector Flows -->
+    <section class="interconnect-section">
+      <h2 class="section-title">Interconnector Flows</h2>
+      <p class="section-desc">
+        Net interchange between NEM regions derived from AEMO dispatch data. Positive values indicate
+        a region is a net importer; negative values indicate net export. Flows drive price convergence —
+        heavily constrained interconnectors cause significant price divergence between adjacent regions.
+      </p>
+      <div class="interconnect-layout" id="interconnectLayout">
+        <div class="loading"><div class="spinner"></div>Loading interconnector data…</div>
+      </div>
+      <div class="ni-strip" id="niStrip" style="display:none"></div>
+    </section>
+
+    <!-- News -->
+    <section>
+      <h2 class="section-title">Latest Energy News</h2>
+      <div id="news" class="news-list">
+        <div class="loading"><div class="spinner"></div>Fetching latest news…</div>
+      </div>
+    </section>
+
+    <footer>
+      <p>Data sourced from AEMO and Australian energy news providers</p>
+      <p>Last fetched: <span id="lastUpdate">—</span> &nbsp;·&nbsp; Cached: <span id="cacheAge">checking…</span></p>
+    </footer>
+  </div>
+
+  <script>
+  const API_BASE = window.location.protocol === 'file:'
+    ? 'http://localhost:3000' : window.location.origin;
+
+  // ── Price helpers ──────────────────────────────────────────────────────
+  function priceClass(p) {
+    if (p < 0)     return 'neg-price';
+    if (p >= 1000) return 'ext-price';
+    if (p >= 300)  return 'high-price';
+    return '';
+  }
+  function alertBadge(p) {
+    if (p < 0)     return `<div class="price-alert neg">Negative price</div>`;
+    if (p >= 1000) return `<div class="price-alert ext">⚠ Extreme price</div>`;
+    if (p >= 300)  return `<div class="price-alert high">↑ High price</div>`;
+    return '';
+  }
+
+  function renderDashboard(data) {
+    document.getElementById('dashboard').innerHTML = data.map(item => {
+      const p = parseFloat(item.price), chg = parseFloat(item.change || 0);
+      return `
+      <div class="card">
+        <div class="region-tag">${item.region}</div>
+        <div class="price ${priceClass(p)}">$${p.toFixed(2)}<span class="price-unit">/MWh</span></div>
+        <div class="change ${chg < 0 ? 'neg' : 'pos'}">${chg < 0 ? '↓' : '↑'} ${Math.abs(chg).toFixed(1)}% vs avg</div>
+        ${alertBadge(p)}
+      </div>`;
+    }).join('');
+  }
+
+  // ── Interconnector flows ───────────────────────────────────────────────
+  // Derive bilateral interconnector flows from per-region net interchange.
+  // Strategy (chain: QLD – NSW – VIC – SA, VIC – TAS):
+  //   1. TAS ↔ VIC via Basslink only  → TAS flow = -NI_TAS
+  //   2. SA  ↔ VIC via Heywood/Murray → SA  flow = -NI_SA
+  //   3. NSW ↔ VIC: VIC's residual after TAS/SA legs
+  //   4. QLD ↔ NSW: NSW's residual after VIC leg
+  // Positive flow = in the "forward" direction named in POSDIR.
+  function deriveFlows(regions) {
+    const ni = {};
+    for (const r of regions) ni[r.regionId] = parseFloat(r.netInterchange || 0);
+
+    const tasToVIC  = ni.TAS1 !== undefined ? -ni.TAS1  : null; // + = TAS→VIC
+    const saToVIC   = ni.SA1  !== undefined ? -ni.SA1   : null; // + = SA→VIC
+
+    let nswToVIC = null;
+    if (ni.VIC1 !== undefined) {
+      const vicResidual = ni.VIC1
+        - (saToVIC  !== null ? saToVIC  : 0)
+        - (tasToVIC !== null ? tasToVIC : 0);
+      nswToVIC = -vicResidual; // + = NSW→VIC
+    }
+
+    let qldToNSW = null;
+    if (ni.NSW1 !== undefined && nswToVIC !== null) {
+      const nswResidual = ni.NSW1 + (nswToVIC || 0);
+      qldToNSW = -nswResidual; // + = QLD→NSW
+    }
+
+    return [
+      { id:'QNI',      label:'QNI / Directlink / Terranora', sub:'Queensland ↔ New South Wales',
+        cap:1078, flow:qldToNSW, posDir:'QLD → NSW', negDir:'NSW → QLD' },
+      { id:'NSW-VIC',  label:'NSW–VIC Interconnector',        sub:'New South Wales ↔ Victoria',
+        cap:1600, flow:nswToVIC, posDir:'NSW → VIC', negDir:'VIC → NSW' },
+      { id:'HEYWOOD',  label:'Heywood / Murraylink',          sub:'Victoria ↔ South Australia',
+        cap:650,  flow: saToVIC !== null ? -saToVIC : null, posDir:'VIC → SA', negDir:'SA → VIC' },
+      { id:'BASSLINK', label:'Basslink',                      sub:'Victoria ↔ Tasmania',
+        cap:594,  flow: tasToVIC !== null ? -tasToVIC : null, posDir:'VIC → TAS', negDir:'TAS → VIC' },
+    ];
+  }
+
+  function fMW(v) {
+    if (v === null) return '—';
+    return (v >= 0 ? '+' : '') + Math.round(v).toLocaleString('en-AU') + ' MW';
+  }
+
+  function flowBar(flow, cap) {
+    if (flow === null) return `<div class="ic-flow-bar"></div>`;
+    const half = Math.min(Math.abs(flow) / cap * 50, 48);
+    const dir  = flow > 0 ? 'fwd' : 'rev';
+    return `<div class="ic-flow-bar">
+      <div class="ic-flow-fill ${dir}" style="width:${half.toFixed(1)}%"></div>
+    </div>`;
+  }
+
+  function renderInterconnectors(regions) {
+    const flows = deriveFlows(regions);
+
+    const rows = flows.map(ic => {
+      const dir = ic.flow === null ? 'zero' : ic.flow > 100 ? 'fwd' : ic.flow < -100 ? 'rev' : 'zero';
+      const dirLabel = ic.flow === null ? ic.sub
+                     : ic.flow > 100   ? ic.posDir
+                     : ic.flow < -100  ? ic.negDir
+                     : 'Near balanced';
+      return `<div class="ic-row">
+        <div><div class="ic-name">${ic.label}</div><div class="ic-sub">${dirLabel}</div></div>
+        ${flowBar(ic.flow, ic.cap)}
+        <div class="ic-mw ${dir}">${fMW(ic.flow)}</div>
+      </div>`;
+    }).join('');
+
+    document.getElementById('interconnectLayout').innerHTML =
+      `<div class="nem-map-panel">${buildNEMSVG(regions, flows)}</div>
+       <div class="ic-table-panel">
+         <div class="ic-table-title">Approximate bilateral interconnector flows (derived from AEMO net interchange)</div>
+         ${rows}
+       </div>`;
+
+    // Net interchange strip
+    const ORDER  = ['QLD1','NSW1','VIC1','SA1','TAS1'];
+    const LABELS = { QLD1:'QLD', NSW1:'NSW', VIC1:'VIC', SA1:'SA', TAS1:'TAS' };
+    const strip  = document.getElementById('niStrip');
+    strip.innerHTML = ORDER.map(rid => {
+      const r = regions.find(x => x.regionId === rid);
+      if (!r) return '';
+      const v   = parseFloat(r.netInterchange || 0);
+      const cls = v > 50 ? 'imp' : v < -50 ? 'exp' : 'bal';
+      const lbl = v > 50 ? '▲ Net import' : v < -50 ? '▼ Net export' : '≈ Balanced';
+      return `<div class="ni-cell">
+        <div class="ni-label">${LABELS[rid]}</div>
+        <div class="ni-value ${cls}">${v >= 0 ? '+' : ''}${Math.round(v)} MW</div>
+        <div class="ni-dir">${lbl}</div>
+      </div>`;
+    }).join('');
+    strip.style.display = 'grid';
+  }
+
+  // ── NEM schematic SVG ──────────────────────────────────────────────────
+  function buildNEMSVG(regions, flows) {
+    const priceOf = rid => parseFloat((regions.find(x => x.regionId === rid) || {}).price || 0);
+    function nodeStyle(rid) {
+      const p = priceOf(rid);
+      if (p < 0)     return { fill:'#eff6ff', stroke:'#2563eb' };
+      if (p >= 1000) return { fill:'#fef2f2', stroke:'#dc2626' };
+      if (p >= 300)  return { fill:'#fffbeb', stroke:'#d97706' };
+      return { fill:'#f9fafb', stroke:'#e5e7eb' };
+    }
+    function priceTxt(rid) {
+      const p = priceOf(rid);
+      return isNaN(p) ? '—' : '$' + p.toFixed(0);
+    }
+
+    // Positions in 260×310 viewport
+    const N = {
+      QLD1:{ x:160, y:45  },
+      NSW1:{ x:160, y:120 },
+      VIC1:{ x:160, y:200 },
+      SA1: { x: 70, y:200 },
+      TAS1:{ x:160, y:280 },
+    };
+
+    function arrowHead(flow, x1, y1, x2, y2) {
+      if (flow === null || Math.abs(flow) < 30) return '';
+      const mx = (x1+x2)/2, my = (y1+y2)/2;
+      const ang = Math.atan2(y2-y1, x2-x1) * 180 / Math.PI;
+      const fwdAng = flow > 0 ? ang : ang + 180;
+      const col = flow > 0 ? '#2563eb' : '#059669';
+      return `<text x="${mx}" y="${my}" text-anchor="middle" dominant-baseline="middle"
+        transform="rotate(${fwdAng},${mx},${my})"
+        font-size="16" fill="${col}" style="user-select:none">›</text>`;
+    }
+
+    const getFlow = id => (flows.find(f => f.id === id) || {}).flow || null;
+
+    const lineColor = (flow) => {
+      if (flow === null || Math.abs(flow) < 30) return '#d1d5db';
+      return flow > 0 ? '#93c5fd' : '#6ee7b7';
+    };
+
+    function line(id, x1, y1, x2, y2) {
+      const f = getFlow(id);
+      return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"
+        stroke="${lineColor(f)}" stroke-width="2"/>
+        ${arrowHead(f, x1, y1, x2, y2)}`;
+    }
+
+    function node(rid) {
+      const { x, y } = N[rid];
+      const { fill, stroke } = nodeStyle(rid);
+      const lbl = { QLD1:'QLD', NSW1:'NSW', VIC1:'VIC', SA1:'SA', TAS1:'TAS' }[rid];
+      return `
+      <circle cx="${x}" cy="${y}" r="30" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>
+      <text x="${x}" y="${y-9}" text-anchor="middle" dominant-baseline="middle"
+        font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="600"
+        fill="#6b7280" letter-spacing="1">${lbl}</text>
+      <text x="${x}" y="${y+10}" text-anchor="middle" dominant-baseline="middle"
+        font-family="IBM Plex Mono,monospace" font-size="11" font-weight="500"
+        fill="#111827">${priceTxt(rid)}</text>`;
+    }
+
+    return `<svg viewBox="0 0 260 320" xmlns="http://www.w3.org/2000/svg" aria-label="NEM topology">
+      <!-- Interconnector lines -->
+      ${line('QNI',      N.QLD1.x, N.QLD1.y+30, N.NSW1.x, N.NSW1.y-30)}
+      ${line('NSW-VIC',  N.NSW1.x, N.NSW1.y+30, N.VIC1.x, N.VIC1.y-30)}
+      ${line('HEYWOOD',  N.VIC1.x-30, N.VIC1.y,  N.SA1.x+30,  N.SA1.y)}
+      ${line('BASSLINK', N.VIC1.x, N.VIC1.y+30, N.TAS1.x, N.TAS1.y-30)}
+      <!-- Region nodes -->
+      ${['QLD1','NSW1','VIC1','SA1','TAS1'].map(node).join('')}
+      <!-- Legend -->
+      <text x="8" y="314" font-family="IBM Plex Sans,sans-serif" font-size="8"
+        fill="#9ca3af">Blue = forward flow · Green = reverse · Node = $/MWh</text>
+    </svg>`;
+  }
+
+  // ── News ──────────────────────────────────────────────────────────────
+  function renderNews(articles) {
+    const el = document.getElementById('news');
+    if (!articles || !articles.length) {
+      el.innerHTML = '<div class="loading">No news articles available.</div>'; return;
+    }
+    el.innerHTML = articles.map(a => `
+    <div class="news-item" onclick="window.open('${a.url}','_blank')">
+      <div class="news-header">
+        <span class="news-source">${a.source}</span>
+        <span class="news-time">${a.time}</span>
+      </div>
+      <div class="news-categories">${(a.categories||[]).map(c=>`<span class="category-tag">${c}</span>`).join('')}</div>
+      <h3 class="news-title">${a.title}</h3>
+      <p class="news-excerpt">${a.excerpt}</p>
+    </div>`).join('');
+  }
+
+  // ── Data loading ──────────────────────────────────────────────────────
+  async function loadPrices() {
+    try {
+      const resp = await fetch(`${API_BASE}/api/live-prices`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const result = await resp.json();
+      if (result.success && result.data && result.data.length) {
+        renderDashboard(result.data);
+        renderInterconnectors(result.data);
+        const ts = result.cachedAt || result.fetchedAt || new Date().toISOString();
+        document.getElementById('lastUpdate').textContent =
+          new Date(ts).toLocaleString('en-AU', {
+            timeZone:'Australia/Sydney', dateStyle:'medium', timeStyle:'short'
+          }) + (result.fromCache ? ' (cached)' : ' (live)');
+      } else throw new Error('No price data');
+    } catch (err) {
+      console.error('[prices]', err);
+      document.getElementById('dashboard').innerHTML =
+        `<div class="loading" style="color:#dc2626">⚠ Could not load prices. Try refreshing.</div>`;
+      document.getElementById('interconnectLayout').innerHTML =
+        `<div class="loading" style="color:#dc2626">⚠ Interconnector data unavailable.</div>`;
+    }
+  }
+
+  async function loadNews() {
+    try {
+      const resp = await fetch(`${API_BASE}/api/news`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const result = await resp.json();
+      if (result.articles && result.articles.length) renderNews(result.articles);
+      else throw new Error('No articles');
+    } catch (err) {
+      console.error('[news]', err);
+      document.getElementById('news').innerHTML =
+        '<div class="loading" style="color:#dc2626">⚠ Could not load news. Try refreshing.</div>';
+    }
+  }
+
+  // ── Page-specific refresh (overrides nav.js default) ─────────────────
+  window.__navRefresh = async function () {
+    const btn   = document.getElementById('gcbRefreshBtn');
+    const btn2  = document.getElementById('refreshBtn');
+    const badge = document.getElementById('cacheStatusBadge');
+    if (btn)  { btn.disabled  = true; btn.innerHTML  = '<span class="gcb-spinner"></span>Refreshing…'; }
+    if (btn2) { btn2.disabled = true; btn2.innerHTML = '<span class="spinner-inline"></span>Refreshing…'; }
+    if (badge){ badge.textContent = 'Fetching fresh prices and news…'; badge.className = 'cache-status-badge visible'; }
+    try {
+      await Promise.all([
+        fetch(`${API_BASE}/api/live-prices?force=true`),
+        fetch(`${API_BASE}/api/news?force=true`),
+      ]);
+      if (badge){ badge.textContent = '✓ Refreshed'; badge.className = 'cache-status-badge visible fresh'; }
+      await Promise.all([loadPrices(), loadNews()]);
+    } catch (e) {
+      if (badge){ badge.textContent = '⚠ Refresh failed: ' + e.message; badge.className = 'cache-status-badge visible missing'; }
+    } finally {
+      if (btn)  { btn.disabled  = false; btn.textContent  = 'Refresh'; }
+      if (btn2) { btn2.disabled = false; btn2.textContent = 'Refresh Data'; }
+    }
+  };
+
+  loadPrices();
+  loadNews();
+  </script>
 </body>
 </html>
