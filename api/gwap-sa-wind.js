@@ -374,21 +374,30 @@ module.exports = async function handler(req, res) {
   }
 
   const now    = new Date();
-  const valYrs = [now.getUTCFullYear(), now.getUTCFullYear() - 1, now.getUTCFullYear() - 2];
+  const valYrs = [now.getUTCFullYear(), now.getUTCFullYear() - 1, now.getUTCFullYear() - 2, now.getUTCFullYear() - 3];
+  const receivedYear = req.query.year || '(not set)';
   let year = req.query.year || 'trailing12';
-  if (year !== 'trailing12' && !valYrs.includes(parseInt(year, 10))) year = 'trailing12';
+  if (year !== 'trailing12' && !valYrs.includes(parseInt(year, 10))) {
+    console.warn(`[gwap] year "${year}" not in valid list ${valYrs} — falling back to trailing12`);
+    year = 'trailing12';
+  }
+
+  console.log(`[gwap] REQUEST: region=${region} fueltech=${fueltech} year_received="${receivedYear}" year_used="${year}"`);
 
   // ── Cache ────────────────────────────────────────────────────────────────────
 
   const force    = req.query.force === 'true';
   const cacheKey = `gwap:v8:${region}:${fueltech}:${year}`;
 
+  console.log(`[gwap] cache key: ${cacheKey} | force=${force}`);
+
   if (!force) {
     const cached = await kvGet(cacheKey);
     if (cached?.annualGWAP !== undefined) {
-      console.log(`[gwap] cache hit: ${cacheKey}`);
-      return res.status(200).json({ ...cached, fromCache: true });
+      console.log(`[gwap] CACHE HIT: ${cacheKey}`);
+      return res.status(200).json({ ...cached, fromCache: true, cacheKey, _debug: { cacheKey, yearReceived: receivedYear, yearUsed: year } });
     }
+    console.log(`[gwap] CACHE MISS: ${cacheKey}`);
   }
 
   // ── Fetch ────────────────────────────────────────────────────────────────────
@@ -427,6 +436,7 @@ module.exports = async function handler(req, res) {
       region,
       fueltech,
       year,
+      cacheKey,
       periodLabel:        range.label,
       fetchedAt:          new Date().toISOString(),
       monthly,
@@ -435,6 +445,15 @@ module.exports = async function handler(req, res) {
       captureRate,
       totalGenerationGWh,
       totalMarketValueM,
+      _debug: {
+        cacheKey,
+        yearReceived: receivedYear,
+        yearUsed:     year,
+        dateStart:    range.dateStart,
+        dateEnd:      range.dateEnd,
+        monthsInPeriod: monthly.length,
+        monthsWithData: monthly.filter(m => m.gwap != null).length,
+      },
     };
 
     await kvSet(cacheKey, result);
