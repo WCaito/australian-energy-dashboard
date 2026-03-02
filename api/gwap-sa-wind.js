@@ -32,10 +32,10 @@
  * Strategy: one SDK call per period (trailing12 OR a single calendar year),
  * with dateStart/dateEnd scoped EXACTLY to the requested period.
  * Region and fueltech are filtered client-side from the response datatable.
- * Each result is cached individually under gwap:v7:{region}:{fueltech}:{year}.
+ * Each result is cached individually under gwap:v8:{region}:{fueltech}:{year}.
  *
  * ══ CACHING ═════════════════════════════════════════════════════════════════════
- *   Redis 25h TTL · Key: gwap:v7:{region}:{fueltech}:{year}
+ *   Redis 25h TTL · Key: gwap:v8:{region}:{fueltech}:{year}
  */
 
 'use strict';
@@ -154,25 +154,19 @@ function buildDateRange(yearParam) {
 }
 
 /**
- * Convert an OE interval timestamp to a YYYY-MM month key.
- * OE returns naive AEST strings. The SDK may parse them as Date objects
- * or leave them as strings — handle both.
+ * Convert an OE interval timestamp to a "YYYY-MM" month key.
+ *
+ * OE returns naive AEST strings like "2025-01-01T00:00:00" (no timezone).
+ * new Date("2025-01-01T00:00:00") in Node.js treats it as LOCAL time — on a
+ * UTC server, local=UTC, so getUTCFullYear/Month give the correct year-month.
+ * The SDK may also return already-parsed Date objects, which work the same way.
+ *
+ * DO NOT append "+10:00" — that shifts the UTC equivalent back 10 hours,
+ * making Jan 2025 → Dec 2024.
  */
 function monthKey(ts) {
-  let d;
-  if (ts instanceof Date) {
-    d = ts;
-  } else {
-    // Naive AEST string like "2025-03-01T00:00:00" — parse as AEST (UTC+10)
-    d = new Date(String(ts).replace(' ', 'T') + '+10:00');
-  }
-  const y = d.getUTCFullYear();  // still UTC internally after timezone parse
-  const m = d.getUTCMonth() + 1;
-  // Adjust: +10:00 parse means we need the local AEST time fields not UTC
-  // Use getFullYear/getMonth which return local-like values when parsed with offset
-  const y2 = d.getFullYear();
-  const m2  = d.getMonth() + 1;
-  return `${y2}-${String(m2).padStart(2, '0')}`;
+  const d = ts instanceof Date ? ts : new Date(String(ts).replace(' ', 'T'));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 function monthLabel(key) {
@@ -196,12 +190,12 @@ function matchesFueltech(ft, fueltech) {
  * Fetch energy + market_value for the requested period.
  * Uses the SDK with exact dateStart/dateEnd — one call per period selection.
  * Returns a map of { 'YYYY-MM': { energyMWh, marketValueDollars } }
- * filtered to the requested region and fueltech.
+ * filtered to the requested region, fueltech, AND date range.
  *
  * Response size: 5 regions × ~15 fueltechs × 2 metrics × 12 months ≈ 1,800 rows
  * — within OE data limits for a single 12-month window.
  */
-async function fetchFueltechData(client, region, fueltech, dateStart, dateEnd) {
+async function fetchFueltechData(client, region, fueltech, dateStart, dateEnd, startMonth, endMonth) {
   console.log(`[gwap] getNetworkData energy+market_value | ${dateStart} → ${dateEnd}`);
 
   const { datatable } = await client.getNetworkData(
@@ -227,17 +221,26 @@ async function fetchFueltechData(client, region, fueltech, dateStart, dateEnd) {
   const fueltechs = [...new Set(datatable.rows.map(r => r.fueltech || r.fueltech_group || ''))].slice(0, 20);
   console.log(`[gwap] fueltechs in response: ${fueltechs.join(', ')}`);
 
+  // Build a set of valid month keys for client-side filtering.
+  // This is the authoritative filter — discards any rows OE returns outside
+  // the requested period (in case OE ignores dateStart/dateEnd).
+  const validKeys = new Set();
+  const kc = new Date(startMonth);
+  while (kc < endMonth) { validKeys.add(monthKey(kc)); kc.setUTCMonth(kc.getUTCMonth() + 1); }
+  console.log(`[gwap] expecting months: ${[...validKeys].sort().join(', ')}`);
+
   const out = {};
   for (const row of datatable.rows) {
     const r  = row.network_region || row.region;
     const ft = row.fueltech || row.fueltech_group || '';
     const ts = row.interval;
 
-    if (r !== region)              continue;
+    if (r !== region)                   continue;
     if (!matchesFueltech(ft, fueltech)) continue;
-    if (!ts)                       continue;
+    if (!ts)                            continue;
 
     const key = monthKey(ts);
+    if (!validKeys.has(key))            continue;  // ← client-side date filter
     if (!out[key]) out[key] = { energyMWh: 0, marketValueDollars: 0 };
     if (row.energy       != null) out[key].energyMWh          += Number(row.energy);
     if (row.market_value != null) out[key].marketValueDollars += Number(row.market_value);
@@ -253,7 +256,7 @@ async function fetchFueltechData(client, region, fueltech, dateStart, dateEnd) {
  * Returns a map of { 'YYYY-MM': price }
  * Response size: 5 regions × 12 months = 60 rows — very small.
  */
-async function fetchFlatPrice(client, region, dateStart, dateEnd) {
+async function fetchFlatPrice(client, region, dateStart, dateEnd, startMonth, endMonth) {
   console.log(`[gwap] getMarket price ${region} | ${dateStart} → ${dateEnd}`);
 
   const { datatable } = await client.getMarket(
@@ -267,26 +270,35 @@ async function fetchFlatPrice(client, region, dateStart, dateEnd) {
     return {};
   }
 
+  const validKeys = new Set();
+  const kc = new Date(startMonth);
+  while (kc < endMonth) { validKeys.add(monthKey(kc)); kc.setUTCMonth(kc.getUTCMonth() + 1); }
+
   const out = {};
   for (const row of datatable.rows) {
     const r  = row.network_region || row.region;
     const ts = row.interval;
     if (r !== region || !ts || row.price == null) continue;
-    out[monthKey(ts)] = Number(row.price);
+    const key = monthKey(ts);
+    if (!validKeys.has(key)) continue;  // ← client-side date filter
+    out[key] = Number(row.price);
   }
 
-  console.log(`[gwap] ${region} flat price months: ${Object.keys(out).length}`);
+  console.log(`[gwap] ${region} flat price months: ${Object.keys(out).length} → ${Object.keys(out).sort().join(', ')}`);
   return out;
 }
 
 // ── Compute GWAP ──────────────────────────────────────────────────────────────
 
 function computeGWAP(fueltechData, flatPrices, { startMonth, endMonth }) {
-  // Build the canonical ordered list of months in the requested period
+  // Build the canonical ordered list of months in the requested period.
+  // cursor steps in UTC month boundaries: Date.UTC(2025,0,1), Date.UTC(2025,1,1), etc.
+  // monthKey(cursor) uses getUTCFullYear/Month, matching what fetchFueltechData produces
+  // for OE row timestamps parsed as UTC (naive strings, no offset).
   const months = [];
   const cursor = new Date(startMonth);
   while (cursor < endMonth) {
-    months.push(monthKey(toNaive(cursor)));
+    months.push(monthKey(cursor));   // ← cursor is a Date, use directly
     cursor.setUTCMonth(cursor.getUTCMonth() + 1);
   }
 
@@ -369,7 +381,7 @@ module.exports = async function handler(req, res) {
   // ── Cache ────────────────────────────────────────────────────────────────────
 
   const force    = req.query.force === 'true';
-  const cacheKey = `gwap:v7:${region}:${fueltech}:${year}`;
+  const cacheKey = `gwap:v8:${region}:${fueltech}:${year}`;
 
   if (!force) {
     const cached = await kvGet(cacheKey);
@@ -392,8 +404,8 @@ module.exports = async function handler(req, res) {
     // Call 2: price → ~60 rows max (all regions, 12 months)
     // Both are within OE data limits for a single 12-month window.
     const [fueltechData, flatPrices] = await Promise.all([
-      fetchFueltechData(client, region, fueltech, range.dateStart, range.dateEnd),
-      fetchFlatPrice(client, region, range.dateStart, range.dateEnd),
+      fetchFueltechData(client, region, fueltech, range.dateStart, range.dateEnd, range.startMonth, range.endMonth),
+      fetchFlatPrice(client, region, range.dateStart, range.dateEnd, range.startMonth, range.endMonth),
     ]);
 
     if (!Object.keys(fueltechData).length) {
