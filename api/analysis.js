@@ -216,6 +216,42 @@ function computeIntraday(records) {
   });
 }
 
+// ── Per-hour negative price frequency (cannibalisation risk) ─────────────────────
+/**
+ * Returns 24 objects: { hour, negPct, negPctSummer, negPctWinter, totalIntervals }
+ * negPct = % of 30-min intervals in that hour that had price < 0
+ */
+function computeIntradayNegFreq(records) {
+  const bkt = {};
+  for (let h = 0; h < 24; h++)
+    bkt[h] = { all:[], summer:[], autumn:[], winter:[], spring:[] };
+
+  for (const { price, hour, month } of records) {
+    if (hour < 0 || hour > 23) continue;
+    const s = SEASON[month];
+    if (!s) continue;
+    const isNeg = price < 0 ? 1 : 0;
+    bkt[hour].all.push(isNeg);
+    bkt[hour][s].push(isNeg);
+  }
+
+  const negPct = arr => arr.length === 0 ? null
+    : +(arr.reduce((a,b) => a+b, 0) / arr.length * 100).toFixed(2);
+
+  return Array.from({ length: 24 }, (_, h) => {
+    const b = bkt[h];
+    return {
+      hour:           h,
+      negPct:         negPct(b.all),
+      negPctSummer:   negPct(b.summer),
+      negPctAutumn:   negPct(b.autumn),
+      negPctWinter:   negPct(b.winter),
+      negPctSpring:   negPct(b.spring),
+      totalIntervals: b.all.length,
+    };
+  });
+}
+
 // ── Summary stats ───────────────────────────────────────────────────────────────
 
 function computeStats(prices) {
@@ -320,8 +356,9 @@ module.exports = async function handler(req, res) {
 
     const prices       = records.map(r => r.price);
     const priceDuration = computePDC(prices);
-    const intradayShape = computeIntraday(records);
-    const stats         = computeStats(prices);
+    const intradayShape   = computeIntraday(records);
+    const intradayNegFreq = computeIntradayNegFreq(records);
+    const stats           = computeStats(prices);
 
     const periodLabel = year === 'trailing12'
       ? `Trailing 12 months (${months[0].year}/${String(months[0].month).padStart(2,'0')} – ${months.at(-1).year}/${String(months.at(-1).month).padStart(2,'0')})`
@@ -337,6 +374,7 @@ module.exports = async function handler(req, res) {
       stats,
       priceDuration,
       intradayShape,
+      intradayNegFreq,
     };
 
     await kvSet(cacheKey, result);
