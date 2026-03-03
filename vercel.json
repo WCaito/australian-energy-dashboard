@@ -29,6 +29,9 @@
     },
     "api/gwap-sa-wind.js": {
       "maxDuration": 60
+    },
+    "api/scenario.js": {
+      "maxDuration": 60
     }
   },
   "crons": [
