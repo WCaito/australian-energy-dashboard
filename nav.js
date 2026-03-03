@@ -5,7 +5,7 @@
  *   <div id="site-nav"></div>
  *   <script src="nav.js" data-active="live"></script>
  *
- * data-active values: live | historical | generators | batteries | analysis
+ * data-active values: live | historical | generators | batteries | analysis | scenario
  *
  * The script injects:
  *   - The full <header> block (title, subtitle, live indicator, nav links)
@@ -37,6 +37,7 @@
     { key: 'generators',  label: 'Generators',    href: 'facility-data.html'            },
     { key: 'batteries',   label: 'NSW Batteries', href: 'bess-nsw.html'                 },
     { key: 'analysis',    label: 'Analysis',      href: 'analysis.html'                 },
+    { key: 'scenario',   label: 'Scenario Sim',  href: 'scenario.html'                 },
   ];
 
   // ── Shared CSS ────────────────────────────────────────────────────────────
