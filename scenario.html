@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Merchant Revenue Simulator — Australian Energy Dashboard</title>
+  <meta name="description" content="Simulate historical merchant energy-market revenue for solar and wind projects in any NEM region.">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:        #ffffff;
+    --bg-subtle: #f9fafb;
+    --border:    #e5e7eb;
+    --text-1:    #111827;
+    --text-2:    #6b7280;
+    --text-3:    #9ca3af;
+    --accent:    #2563eb;
+    --positive:  #059669;
+    --negative:  #dc2626;
+    --amber:     #d97706;
+    --purple:    #7c3aed;
+    --solar:     #f59e0b;
+    --wind:      #2563eb;
+  }
+  body {
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    background: var(--bg); color: var(--text-1);
+    min-height: 100vh; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .container { max-width: 1280px; margin: 0 auto; padding: 0 28px 96px; }
+
+  /* ── Controls strip ─────────────────────────────────────────────────────── */
+  .controls-strip {
+    display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end;
+    margin-bottom: 40px; padding: 20px 24px;
+    background: var(--bg-subtle); border: 1px solid var(--border);
+  }
+  .ctrl-group { display: flex; flex-direction: column; gap: 5px; min-width: 120px; }
+  .ctrl-group.wide { min-width: 180px; }
+  .ctrl-label {
+    font-size: 0.6875rem; font-weight: 600; color: var(--text-3);
+    text-transform: uppercase; letter-spacing: 0.07em;
+  }
+  .ctrl-label .optional {
+    font-weight: 400; font-style: italic; text-transform: none;
+    letter-spacing: 0; color: var(--text-3);
+  }
+  select, input[type="number"], input[type="text"] {
+    padding: 8px 12px; border: 1px solid var(--border);
+    background: var(--bg); font-size: 0.875rem;
+    font-family: 'IBM Plex Sans', sans-serif; color: var(--text-1);
+    cursor: pointer; appearance: none; transition: border-color 0.15s;
+    width: 100%;
+  }
+  select {
+    padding-right: 32px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7280' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 12px center;
+  }
+  select:focus, input:focus { outline: none; border-color: var(--accent); }
+  input[type="number"] { font-family: 'IBM Plex Mono', monospace; }
+  input[type="number"]::placeholder { color: var(--text-3); font-style: italic; }
+  .run-btn {
+    padding: 8px 28px; background: var(--text-1); color: #fff; border: none;
+    font-family: 'IBM Plex Sans', sans-serif; font-weight: 600;
+    font-size: 0.9375rem; cursor: pointer; transition: background 0.15s;
+    align-self: flex-end; white-space: nowrap;
+  }
+  .run-btn:hover { background: var(--accent); }
+  .run-btn:disabled { background: var(--text-3); cursor: not-allowed; }
+  .ctrl-divider {
+    width: 1px; background: var(--border); align-self: stretch;
+    margin: 0 4px;
+  }
+
+  /* ── Tech toggle ────────────────────────────────────────────────────────── */
+  .tech-toggle {
+    display: flex; border: 1px solid var(--border);
+  }
+  .tech-btn {
+    flex: 1; padding: 8px 16px; border: none; cursor: pointer;
+    font-family: 'IBM Plex Sans', sans-serif; font-size: 0.875rem;
+    font-weight: 500; background: var(--bg); color: var(--text-2);
+    transition: background 0.15s, color 0.15s;
+  }
+  .tech-btn.active-solar { background: var(--solar); color: #fff; }
+  .tech-btn.active-wind  { background: var(--wind);  color: #fff; }
+
+  /* ── Section title ──────────────────────────────────────────────────────── */
+  .section-title {
+    font-family: 'IBM Plex Serif', Georgia, serif;
+    font-size: 1.25rem; font-weight: 600; color: var(--text-1);
+    letter-spacing: -0.01em; margin-bottom: 6px;
+  }
+  .section-desc {
+    font-size: 0.875rem; color: var(--text-2); line-height: 1.65;
+    max-width: 720px; margin-bottom: 20px;
+  }
+
+  /* ── Spinner ────────────────────────────────────────────────────────────── */
+  .spinner {
+    width: 32px; height: 32px; border: 2px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-block {
+    padding: 64px 24px; text-align: center; color: var(--text-3);
+    font-size: 0.9rem; display: flex; align-items: center;
+    justify-content: center; gap: 14px; flex-direction: column;
+  }
+  .loading-block p { margin-top: 4px; font-size: 0.8rem; }
+
+  /* ── KPI rail ───────────────────────────────────────────────────────────── */
+  .kpi-rail {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px; background: var(--border);
+    border: 1px solid var(--border); margin-bottom: 48px;
+  }
+  .kpi-cell { background: var(--bg); padding: 20px 20px 16px; }
+  .kpi-lbl {
+    font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--text-3); margin-bottom: 6px; font-weight: 500;
+  }
+  .kpi-val {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 1.25rem; font-weight: 500; color: var(--text-1); line-height: 1.2;
+  }
+  .kpi-val.green  { color: var(--positive); }
+  .kpi-val.amber  { color: var(--amber); }
+  .kpi-val.blue   { color: var(--accent); }
+  .kpi-val.red    { color: var(--negative); }
+  .kpi-val.purple { color: var(--purple); }
+  .kpi-sub { font-size: 0.6875rem; color: var(--text-3); margin-top: 4px; font-family: 'IBM Plex Mono', monospace; }
+
+  /* ── Chart grid ─────────────────────────────────────────────────────────── */
+  .chart-grid-2 {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 1px; background: var(--border);
+    border: 1px solid var(--border); margin-bottom: 1px;
+  }
+  .chart-grid-1 {
+    border: 1px solid var(--border); margin-bottom: 48px;
+    border-top: none;
+  }
+  @media (max-width: 860px) {
+    .chart-grid-2 { grid-template-columns: 1fr; }
+  }
+  .chart-card { background: var(--bg); }
+  .chart-head {
+    padding: 16px 24px 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: flex-start;
+    justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  }
+  .chart-title {
+    font-family: 'IBM Plex Serif', Georgia, serif;
+    font-size: 0.9375rem; font-weight: 600; color: var(--text-1);
+  }
+  .chart-meta { font-size: 0.75rem; color: var(--text-3); font-family: 'IBM Plex Mono', monospace; margin-top: 2px; }
+  .chart-legend { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 0.75rem; color: var(--text-2); }
+  .legend-swatch { width: 18px; height: 3px; border-radius: 1px; flex-shrink: 0; }
+  .chart-body { padding: 20px 16px 16px; position: relative; height: 320px; }
+  .chart-foot {
+    padding: 10px 24px; border-top: 1px solid var(--border);
+    background: var(--bg-subtle); font-size: 0.75rem; color: var(--text-2);
+    display: flex; gap: 16px; flex-wrap: wrap;
+  }
+  .chart-foot-item { display: flex; align-items: center; gap: 6px; }
+  .foot-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ── P10/P50/P90 distribution ───────────────────────────────────────────── */
+  .distribution-strip {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 1px; background: var(--border);
+    border: 1px solid var(--border); margin-bottom: 48px;
+  }
+  .dist-cell { background: var(--bg); padding: 16px 20px; text-align: center; }
+  .dist-lbl { font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-3); margin-bottom: 4px; }
+  .dist-val {
+    font-family: 'IBM Plex Mono', monospace; font-size: 1.0625rem;
+    font-weight: 500; color: var(--text-1);
+  }
+  .dist-val.p10 { color: var(--negative); }
+  .dist-val.p90 { color: var(--positive); }
+  .dist-sub { font-size: 0.6875rem; color: var(--text-3); margin-top: 3px; }
+
+  /* ── Data table ─────────────────────────────────────────────────────────── */
+  .table-section { margin-bottom: 48px; }
+  .table-toolbar {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 12px; flex-wrap: wrap; gap: 8px;
+  }
+  .csv-btn {
+    padding: 6px 16px; background: var(--bg); color: var(--text-2);
+    border: 1px solid var(--border); font-size: 0.8125rem;
+    font-family: 'IBM Plex Sans', sans-serif; cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .csv-btn:hover { border-color: var(--text-1); color: var(--text-1); }
+
+  .data-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+  .data-table th {
+    background: var(--text-1); color: #fff; padding: 9px 14px;
+    text-align: left; font-weight: 600; font-size: 0.6875rem;
+    text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap;
+  }
+  .data-table th.right { text-align: right; }
+  .data-table td {
+    padding: 9px 14px; border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  .data-table tr:last-child td { border-bottom: none; }
+  .data-table tr:nth-child(even) td { background: var(--bg-subtle); }
+  .data-table td.mono { font-family: 'IBM Plex Mono', monospace; }
+  .data-table td.right { text-align: right; }
+  .data-table td.green { color: var(--positive); font-family: 'IBM Plex Mono', monospace; }
+  .data-table td.red   { color: var(--negative); font-family: 'IBM Plex Mono', monospace; }
+  .data-table td.amber { color: var(--amber);    font-family: 'IBM Plex Mono', monospace; }
+  .data-table td.blue  { color: var(--accent);   font-family: 'IBM Plex Mono', monospace; }
+
+  .season-tag {
+    display: inline-block; font-size: 0.5625rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    padding: 1px 6px; border: 1px solid currentColor;
+  }
+  .season-tag.summer { color: var(--solar); }
+  .season-tag.autumn { color: var(--amber); }
+  .season-tag.winter { color: var(--accent); }
+  .season-tag.spring { color: var(--positive); }
+
+  /* ── Methodology box ────────────────────────────────────────────────────── */
+  .methodology {
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--text-3);
+    background: var(--bg-subtle);
+    padding: 20px 24px; margin-bottom: 48px;
+  }
+  .methodology-title {
+    font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--text-3); margin-bottom: 12px;
+  }
+  .methodology p {
+    font-size: 0.8125rem; color: var(--text-2); line-height: 1.7;
+    margin-bottom: 8px;
+  }
+  .methodology p:last-child { margin-bottom: 0; }
+  .methodology strong { color: var(--text-1); font-weight: 600; }
+
+  /* ── PPA badge ──────────────────────────────────────────────────────────── */
+  .ppa-active-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: #eff6ff; border: 1px solid #bfdbfe;
+    color: var(--accent); padding: 4px 12px;
+    font-size: 0.75rem; font-weight: 600; font-family: 'IBM Plex Sans', sans-serif;
+    margin-bottom: 24px;
+  }
+
+  /* ── Interp panel ───────────────────────────────────────────────────────── */
+  .interp {
+    background: var(--bg-subtle); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    padding: 16px 20px; margin-top: 16px;
+    font-size: 0.875rem; line-height: 1.7; color: var(--text-2);
+  }
+  .interp strong { color: var(--text-1); }
+
+  /* ── Empty state ────────────────────────────────────────────────────────── */
+  #results { display: none; }
+  #emptyState {
+    padding: 80px 24px; text-align: center; color: var(--text-3);
+    border: 1px solid var(--border); background: var(--bg-subtle);
+  }
+  .empty-icon { font-size: 2.5rem; margin-bottom: 16px; }
+  .empty-title {
+    font-family: 'IBM Plex Serif', Georgia, serif;
+    font-size: 1.25rem; color: var(--text-2); margin-bottom: 8px;
+  }
+  .empty-sub { font-size: 0.875rem; color: var(--text-3); }
+
+  /* ── Error state ────────────────────────────────────────────────────────── */
+  .error-block {
+    padding: 32px 24px; text-align: center; color: var(--negative);
+    border: 1px solid #fca5a5; background: #fef2f2;
+    font-size: 0.875rem;
+  }
+  .error-block strong { display: block; margin-bottom: 6px; font-size: 1rem; }
+
+  footer {
+    margin-top: 64px; padding-top: 20px;
+    border-top: 1px solid var(--border);
+    font-size: 0.75rem; color: var(--text-3);
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+
+  @media (max-width: 640px) {
+    .controls-strip { flex-direction: column; }
+    .ctrl-divider { display: none; }
+    .kpi-rail { grid-template-columns: repeat(2, 1fr); }
+    .distribution-strip { grid-template-columns: 1fr; }
+    .chart-body { height: 240px; }
+  }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <script>
+    window.NAV_TITLE    = 'Merchant Revenue Simulator';
+    window.NAV_SUBTITLE = 'Simulate what a solar or wind project would have earned in the spot market — with optional PPA overlay.';
+    window.NAV_LIVE     = false;
+    window.NAV_ACTIVE   = 'scenario';
+  </script>
+  <div id="site-nav"></div>
+  <script src="nav.js"></script>
+
+  <!-- ── Controls ──────────────────────────────────────────────────────────── -->
+  <div class="controls-strip">
+
+    <div class="ctrl-group wide">
+      <label class="ctrl-label">Technology</label>
+      <div class="tech-toggle" id="techToggle">
+        <button class="tech-btn active-solar" id="btnSolar" onclick="setTech('solar_utility')">☀ Solar</button>
+        <button class="tech-btn" id="btnWind"  onclick="setTech('wind')">⟡ Wind</button>
+      </div>
+    </div>
+
+    <div class="ctrl-group">
+      <label class="ctrl-label" for="selRegion">Region</label>
+      <select id="selRegion">
+        <option value="NSW1">NSW</option>
+        <option value="VIC1">VIC</option>
+        <option value="QLD1">QLD</option>
+        <option value="SA1" selected>SA</option>
+        <option value="TAS1">TAS</option>
+      </select>
+    </div>
+
+    <div class="ctrl-group">
+      <label class="ctrl-label" for="selYear">Period</label>
+      <select id="selYear">
+        <option value="trailing12" selected>Trailing 12 months</option>
+        <option value="2024">2024</option>
+        <option value="2023">2023</option>
+        <option value="2022">2022</option>
+      </select>
+    </div>
+
+    <div class="ctrl-divider"></div>
+
+    <div class="ctrl-group">
+      <label class="ctrl-label" for="inpCapacity">Capacity (MW)</label>
+      <input type="number" id="inpCapacity" value="100" min="1" max="2000" step="10" placeholder="e.g. 100">
+    </div>
+
+    <div class="ctrl-group">
+      <label class="ctrl-label" for="inpMLF">MLF <span class="optional">(0.80–1.10)</span></label>
+      <input type="number" id="inpMLF" value="1.00" min="0.80" max="1.10" step="0.01" placeholder="1.00">
+    </div>
+
+    <div class="ctrl-group">
+      <label class="ctrl-label" for="inpCF">Capacity Factor <span class="optional">(override)</span></label>
+      <input type="number" id="inpCF" min="0.01" max="0.95" step="0.01" placeholder="Default by region">
+    </div>
+
+    <div class="ctrl-divider"></div>
+
+    <div class="ctrl-group">
+      <label class="ctrl-label" for="inpPPA">PPA Strike $/MWh <span class="optional">(optional)</span></label>
+      <input type="number" id="inpPPA" min="0" max="500" step="1" placeholder="e.g. 65">
+    </div>
+
+    <button class="run-btn" id="runBtn" onclick="runSimulation()">Run Simulation</button>
+  </div>
+
+  <!-- ── Empty state ────────────────────────────────────────────────────────── -->
+  <div id="emptyState">
+    <div class="empty-icon">◎</div>
+    <div class="empty-title">Configure your project and run the simulation</div>
+    <p class="empty-sub">Select a technology, region, and capacity above — then click Run Simulation.<br>Results use actual AEMO spot prices and real fleet-level GWAP data.</p>
+  </div>
+
+  <!-- ── Results ────────────────────────────────────────────────────────────── -->
+  <div id="results">
+
+    <!-- PPA badge (shown only when PPA is active) -->
+    <div id="ppaBadge" class="ppa-active-badge" style="display:none">
+      ◈ PPA overlay active — showing spot vs. contracted revenue
+    </div>
+
+    <!-- KPI rail -->
+    <div class="kpi-rail">
+      <div class="kpi-cell">
+        <div class="kpi-lbl">Annual Spot Revenue</div>
+        <div class="kpi-val green" id="kRevenue">—</div>
+        <div class="kpi-sub" id="kRevenueM">—</div>
+      </div>
+      <div class="kpi-cell">
+        <div class="kpi-lbl">Revenue / MW</div>
+        <div class="kpi-val blue" id="kRevPerMW">—</div>
+        <div class="kpi-sub" id="kRevPerMWSub">annualised $/MW installed</div>
+      </div>
+      <div class="kpi-cell">
+        <div class="kpi-lbl">Fleet GWAP</div>
+        <div class="kpi-val" id="kGWAP">—</div>
+        <div class="kpi-sub" id="kGWAPSub">effective after MLF</div>
+      </div>
+      <div class="kpi-cell">
+        <div class="kpi-lbl">Capture Rate</div>
+        <div class="kpi-val" id="kCapture">—</div>
+        <div class="kpi-sub" id="kFlatPrice">vs flat price</div>
+      </div>
+      <div class="kpi-cell">
+        <div class="kpi-lbl">Generation</div>
+        <div class="kpi-val" id="kEnergy">—</div>
+        <div class="kpi-sub" id="kCF">capacity factor</div>
+      </div>
+      <div class="kpi-cell" id="kpiPPA" style="display:none">
+        <div class="kpi-lbl">PPA Revenue</div>
+        <div class="kpi-val purple" id="kPPARev">—</div>
+        <div class="kpi-sub" id="kHedge">vs spot</div>
+      </div>
+    </div>
+
+    <!-- Charts row 1: monthly revenue + capture rate -->
+    <div class="chart-grid-2">
+      <div class="chart-card">
+        <div class="chart-head">
+          <div>
+            <div class="chart-title">Monthly Spot Revenue</div>
+            <div class="chart-meta" id="chartMeta1">—</div>
+          </div>
+          <div class="chart-legend">
+            <div class="legend-item"><div class="legend-swatch" id="swatchRevenue"></div><span id="legendRevenue">Spot revenue</span></div>
+            <div class="legend-item ppa-only" style="display:none"><div class="legend-swatch" style="background:#7c3aed"></div><span>PPA revenue</span></div>
+          </div>
+        </div>
+        <div class="chart-body"><canvas id="revenueChart"></canvas></div>
+        <div class="chart-foot">
+          <div class="chart-foot-item"><div class="foot-dot" id="footRevDot"></div><span id="footRevLabel">Monthly spot revenue ($)</span></div>
+          <div class="chart-foot-item ppa-only" style="display:none"><div class="foot-dot" style="background:#7c3aed; opacity:0.5"></div><span>PPA revenue (dashed)</span></div>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-head">
+          <div>
+            <div class="chart-title">GWAP vs Flat Price</div>
+            <div class="chart-meta" id="chartMeta2">—</div>
+          </div>
+          <div class="chart-legend">
+            <div class="legend-item"><div class="legend-swatch" id="swatchGWAP"></div>Fleet GWAP</div>
+            <div class="legend-item"><div class="legend-swatch" style="background:#6b7280"></div>Flat price</div>
+            <div class="legend-item ppa-only" style="display:none"><div class="legend-swatch" style="background:#7c3aed; border-top: 2px dashed #7c3aed; height: 0;"></div>PPA strike</div>
+          </div>
+        </div>
+        <div class="chart-body"><canvas id="gwapChart"></canvas></div>
+        <div class="chart-foot">
+          <div class="chart-foot-item"><div class="foot-dot" id="footGwapDot"></div><span id="footGwapLabel">Actual fleet capture price</span></div>
+          <div class="chart-foot-item"><div class="foot-dot" style="background:#6b7280"></div><span>Time-weighted average price</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chart row 2: cumulative revenue full width -->
+    <div class="chart-grid-1">
+      <div class="chart-card">
+        <div class="chart-head">
+          <div>
+            <div class="chart-title">Cumulative Revenue Through Period</div>
+            <div class="chart-meta" id="chartMeta3">—</div>
+          </div>
+          <div class="chart-legend">
+            <div class="legend-item"><div class="legend-swatch" id="swatchCumSpot"></div>Spot (cumulative)</div>
+            <div class="legend-item ppa-only" style="display:none"><div class="legend-swatch" style="background:#7c3aed"></div>PPA (cumulative)</div>
+          </div>
+        </div>
+        <div class="chart-body" style="height:260px"><canvas id="cumulChart"></canvas></div>
+        <div class="chart-foot">
+          <div class="chart-foot-item"><div class="foot-dot" id="footCumDot"></div><span>Running total spot revenue through the period</span></div>
+          <div class="chart-foot-item ppa-only" style="display:none"><div class="foot-dot" style="background:#7c3aed; opacity:0.6"></div><span>Running total if contracted at PPA strike</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- P10 / P50 / P90 -->
+    <h2 class="section-title" style="margin-bottom:12px">Revenue Range (Annualised)</h2>
+    <p class="section-desc">Based on the distribution of monthly spot revenues, extrapolated to a 12-month period. P10 represents a poor year; P90 represents a strong year.</p>
+    <div class="distribution-strip">
+      <div class="dist-cell">
+        <div class="dist-lbl">P10 — Downside Year</div>
+        <div class="dist-val p10" id="dP10">—</div>
+        <div class="dist-sub">10% of months perform worse</div>
+      </div>
+      <div class="dist-cell">
+        <div class="dist-lbl">P50 — Base Case</div>
+        <div class="dist-val" id="dP50">—</div>
+        <div class="dist-sub">Median monthly run-rate × 12</div>
+      </div>
+      <div class="dist-cell">
+        <div class="dist-lbl">P90 — Strong Year</div>
+        <div class="dist-val p90" id="dP90">—</div>
+        <div class="dist-sub">90% of months perform worse</div>
+      </div>
+    </div>
+
+    <!-- Monthly breakdown table -->
+    <div class="table-section">
+      <div class="table-toolbar">
+        <h2 class="section-title" style="margin-bottom:0">Monthly Breakdown</h2>
+        <button class="csv-btn" onclick="downloadCSV()">↓ Export CSV</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table" id="monthlyTable">
+          <thead id="tableHead"></thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Methodology -->
+    <div class="methodology">
+      <div class="methodology-title">Methodology & Important Caveats</div>
+      <p id="methoText">—</p>
+      <p><strong>Revenue calculation:</strong> Monthly spot revenue = Capacity (MW) × Monthly Capacity Factor × Hours in Month × Fleet GWAP ($/MWh) × MLF. GWAP is sourced from OpenElectricity's monthly fleet-level data for the actual regional wind or solar generation fleet.</p>
+      <p><strong>Capacity factor:</strong> Regional annual averages are sourced from AEMO Generation Information 2024 and AER State of the Energy Market 2024. Seasonal adjustments reflect known wind/solar resource patterns. CF can be overridden with a project-specific value.</p>
+      <p><strong>This model does not include:</strong> FCAS revenue (typically 20–50% of total battery revenue, but less significant for wind/solar), network service payments, LGC/REGO revenue, connection costs, O&M costs, or project-specific curtailment. It is an energy-market revenue simulation only.</p>
+      <p><strong>Not financial advice.</strong> This tool is for indicative commercial analysis. All outputs should be verified against project-specific data and professional advice before use in investment decisions.</p>
+    </div>
+
+    <footer>
+      <p>GWAP data sourced from OpenElectricity API · Spot prices from AEMO</p>
+      <p>Simulated at: <span id="simTimestamp">—</span></p>
+    </footer>
+  </div><!-- /results -->
+
+</div><!-- /container -->
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+const API_BASE = window.location.protocol === 'file:'
+  ? 'http://localhost:3000' : window.location.origin;
+
+let currentTech = 'solar_utility';
+let currentData = null;
+let charts = {};
+
+// ── Tech toggle ───────────────────────────────────────────────────────────────
+function setTech(tech) {
+  currentTech = tech;
+  document.getElementById('btnSolar').className = 'tech-btn' + (tech === 'solar_utility' ? ' active-solar' : '');
+  document.getElementById('btnWind').className  = 'tech-btn' + (tech === 'wind'          ? ' active-wind'  : '');
+}
+
+// ── Formatting helpers ────────────────────────────────────────────────────────
+const fM  = v => v == null ? '—' : '$' + (v / 1e6).toFixed(2) + 'M';
+const fK  = v => v == null ? '—' : '$' + Math.round(v / 1000).toLocaleString('en-AU') + 'k';
+const f$  = v => v == null ? '—' : '$' + Math.round(v).toLocaleString('en-AU');
+const fMWh = v => v == null ? '—' : '$' + v.toFixed(2) + '/MWh';
+const fPct = v => v == null ? '—' : v.toFixed(1) + '%';
+const fGWh = v => v == null ? '—' : (v / 1000).toFixed(1) + ' GWh';
+
+function techColor(tech) {
+  return tech === 'solar_utility' ? '#f59e0b' : '#2563eb';
+}
+function techLabel(tech) {
+  return tech === 'solar_utility' ? 'Solar' : 'Wind';
+}
+
+// ── Chart helpers ─────────────────────────────────────────────────────────────
+const CHART_DEFAULTS = {
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      backgroundColor: '#fff', borderColor: '#e5e7eb', borderWidth: 1,
+      titleColor: '#111827', bodyColor: '#6b7280', padding: 12,
+    },
+  },
+  scales: {
+    x: {
+      grid: { display: false },
+      ticks: { font: { family: "'IBM Plex Mono', monospace", size: 10 }, color: '#9ca3af', maxRotation: 45 },
+    },
+    y: {
+      grid: { color: '#f3f4f6' },
+      ticks: { font: { family: "'IBM Plex Mono', monospace", size: 10 }, color: '#9ca3af' },
+    },
+  },
+  responsive: true, maintainAspectRatio: false,
+};
+
+function destroyCharts() {
+  Object.values(charts).forEach(c => c && c.destroy());
+  charts = {};
+}
+
+// ── Run simulation ────────────────────────────────────────────────────────────
+async function runSimulation() {
+  const region   = document.getElementById('selRegion').value;
+  const year     = document.getElementById('selYear').value;
+  const capacity = parseFloat(document.getElementById('inpCapacity').value) || 100;
+  const mlf      = parseFloat(document.getElementById('inpMLF').value) || 1.0;
+  const cfRaw    = document.getElementById('inpCF').value.trim();
+  const ppaRaw   = document.getElementById('inpPPA').value.trim();
+
+  const cf  = cfRaw  ? parseFloat(cfRaw)  : null;
+  const ppa = ppaRaw ? parseFloat(ppaRaw) : null;
+
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true;
+  btn.textContent = 'Loading…';
+
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('results').style.display    = 'none';
+  showLoading();
+
+  const params = new URLSearchParams({
+    region, fueltech: currentTech, capacity, mlf, year,
+    ...(cf  !== null ? { cf_override: cf }   : {}),
+    ...(ppa !== null ? { ppa_strike:  ppa }  : {}),
+  });
+
+  try {
+    const resp = await fetch(`${API_BASE}/api/scenario?${params}`);
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${resp.status}`);
+    }
+    currentData = await resp.json();
+    hideLoading();
+    renderResults(currentData);
+  } catch (err) {
+    console.error('[scenario]', err);
+    hideLoading();
+    showError(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Run Simulation';
+  }
+}
+
+let loadingEl = null;
+function showLoading() {
+  loadingEl = document.createElement('div');
+  loadingEl.id = 'loadingBlock';
+  loadingEl.className = 'loading-block';
+  loadingEl.innerHTML = `
+    <div class="spinner"></div>
+    <div>
+      <strong>Fetching market data…</strong>
+      <p>Pulling GWAP data from OpenElectricity API. This may take 10–20 seconds on first load.</p>
+    </div>`;
+  document.querySelector('.container').appendChild(loadingEl);
+}
+function hideLoading() {
+  if (loadingEl) { loadingEl.remove(); loadingEl = null; }
+}
+function showError(msg) {
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('results').style.display    = 'none';
+  let errEl = document.getElementById('errorBlock');
+  if (!errEl) {
+    errEl = document.createElement('div');
+    errEl.id = 'errorBlock';
+    errEl.className = 'error-block';
+    document.querySelector('.container').appendChild(errEl);
+  }
+  errEl.innerHTML = `<strong>⚠ Could not load simulation data</strong>${msg}`;
+}
+
+// ── Render results ────────────────────────────────────────────────────────────
+function renderResults(data) {
+  const { monthly, annual, assumptions, inputs, region, fueltech, periodLabel } = data;
+  const ppa = inputs.ppaStrike;
+  const col = techColor(fueltech);
+  const lbl = techLabel(fueltech);
+
+  // Remove any old error block
+  const errEl = document.getElementById('errorBlock');
+  if (errEl) errEl.remove();
+
+  // PPA badge
+  const badge = document.getElementById('ppaBadge');
+  badge.style.display = ppa ? 'inline-flex' : 'none';
+  badge.textContent = ppa
+    ? `◈ PPA overlay active — strike price $${ppa}/MWh · comparing spot vs. contracted revenue`
+    : '';
+
+  // Toggle PPA-only elements
+  document.querySelectorAll('.ppa-only').forEach(el => {
+    el.style.display = ppa ? '' : 'none';
+  });
+  document.getElementById('kpiPPA').style.display = ppa ? '' : 'none';
+
+  // ── KPI rail ────────────────────────────────────────────────────────────────
+  document.getElementById('kRevenue').textContent  = fM(annual.revenueSpot);
+  document.getElementById('kRevenueM').textContent = f$(annual.revenueSpot) + ' total';
+  document.getElementById('kRevPerMW').textContent = f$(annual.revenuePerMW);
+  document.getElementById('kRevPerMWSub').textContent = `${inputs.capacityMW} MW installed`;
+  document.getElementById('kGWAP').textContent     = fMWh(annual.annualGWAP);
+  document.getElementById('kGWAPSub').textContent  = annual.annualGWAP != null && inputs.mlf !== 1.0
+    ? `$${(annual.annualGWAP * inputs.mlf).toFixed(2)}/MWh after MLF ${inputs.mlf}` : 'fleet-level capture price';
+  document.getElementById('kCapture').textContent  = fPct(annual.annualCaptureRate);
+  const captureEl = document.getElementById('kCapture');
+  captureEl.className = 'kpi-val' + (annual.annualCaptureRate < 70 ? ' red' : annual.annualCaptureRate < 85 ? ' amber' : ' green');
+  document.getElementById('kFlatPrice').textContent = annual.annualFlatPrice != null ? `vs flat $${annual.annualFlatPrice.toFixed(2)}/MWh` : '—';
+  document.getElementById('kEnergy').textContent   = fGWh(annual.totalEnergyMWh);
+  document.getElementById('kCF').textContent       = `CF ${(annual.annualCF * 100).toFixed(1)}%${assumptions.cfOverrideUsed ? ' (override)' : ''}`;
+
+  if (ppa) {
+    document.getElementById('kPPARev').textContent  = fM(annual.revenuePPA);
+    const delta = annual.totalHedgePayoff;
+    const hedgeEl = document.getElementById('kHedge');
+    hedgeEl.textContent = delta != null
+      ? (delta >= 0 ? '+' : '') + f$(delta) + ' vs spot'
+      : '—';
+    hedgeEl.style.color = delta != null && delta >= 0 ? 'var(--positive)' : 'var(--negative)';
+  }
+
+  // ── P10/P50/P90 ─────────────────────────────────────────────────────────────
+  document.getElementById('dP10').textContent = fM(annual.p10AnnualisedRevenue);
+  document.getElementById('dP50').textContent = fM(annual.p50AnnualisedRevenue);
+  document.getElementById('dP90').textContent = fM(annual.p90AnnualisedRevenue);
+
+  // ── Chart metadata ───────────────────────────────────────────────────────────
+  const metaStr = `${inputs.capacityMW} MW ${lbl} · ${region} · ${periodLabel}`;
+  ['chartMeta1','chartMeta2','chartMeta3'].forEach(id => {
+    document.getElementById(id).textContent = metaStr;
+  });
+
+  // Swatch colors
+  ['swatchRevenue','swatchGWAP','swatchCumSpot'].forEach(id => {
+    document.getElementById(id).style.background = col;
+  });
+  ['footRevDot','footGwapDot','footCumDot'].forEach(id => {
+    document.getElementById(id).style.background = col;
+  });
+  document.getElementById('legendRevenue').textContent = `${lbl} spot revenue`;
+  document.getElementById('footRevLabel').textContent  = `Monthly ${lbl.toLowerCase()} spot revenue ($)`;
+  document.getElementById('footGwapLabel').textContent = `Actual ${region} ${lbl.toLowerCase()} fleet capture price`;
+
+  // ── Build charts ─────────────────────────────────────────────────────────────
+  destroyCharts();
+  const labels = monthly.map(m => m.label);
+
+  // Chart 1: Monthly Revenue (bar)
+  const revenueCtx = document.getElementById('revenueChart').getContext('2d');
+  const revenueDatasets = [{
+    label: `${lbl} Spot Revenue`,
+    data: monthly.map(m => m.revenueSpot),
+    backgroundColor: col + 'cc',
+    borderColor: col,
+    borderWidth: 1, borderRadius: 2,
+    order: 2,
+  }];
+  if (ppa) {
+    revenueDatasets.push({
+      label: 'PPA Revenue',
+      data: monthly.map(m => m.revenuePPA),
+      type: 'line',
+      borderColor: '#7c3aed',
+      backgroundColor: 'transparent',
+      borderWidth: 2,
+      borderDash: [6, 3],
+      pointRadius: 3,
+      tension: 0.2,
+      order: 1,
+    });
+  }
+  charts.revenue = new Chart(revenueCtx, {
+    type: 'bar',
+    data: { labels, datasets: revenueDatasets },
+    options: {
+      ...CHART_DEFAULTS,
+      plugins: {
+        ...CHART_DEFAULTS.plugins,
+        legend: { display: !!ppa, position: 'top', align: 'end',
+          labels: { font: { family: "'IBM Plex Sans',sans-serif", size: 11 }, color: '#6b7280', boxWidth: 16, padding: 12 }
+        },
+        tooltip: {
+          ...CHART_DEFAULTS.plugins.tooltip,
+          callbacks: {
+            title: ctx => labels[ctx[0].dataIndex],
+            label: ctx => {
+              const m = monthly[ctx.dataIndex];
+              const lines = [` ${ctx.dataset.label}: ${f$(ctx.parsed.y)}`];
+              if (ctx.datasetIndex === 0) {
+                lines.push(` GWAP: ${fMWh(m.gwap)}`, ` CF: ${(m.monthlyCF * 100).toFixed(1)}%`);
+              }
+              return lines;
+            },
+          },
+        },
+      },
+      scales: {
+        ...CHART_DEFAULTS.scales,
+        y: {
+          ...CHART_DEFAULTS.scales.y,
+          ticks: { ...CHART_DEFAULTS.scales.y.ticks, callback: v => '$' + (v / 1e6).toFixed(1) + 'M' },
+        },
+      },
+    },
+  });
+
+  // Chart 2: GWAP vs Flat Price (line)
+  const gwapCtx = document.getElementById('gwapChart').getContext('2d');
+  const gwapDatasets = [
+    {
+      label: `${lbl} Fleet GWAP`,
+      data: monthly.map(m => m.gwap),
+      borderColor: col, backgroundColor: col + '22',
+      borderWidth: 2.5, pointRadius: 3, tension: 0.25, fill: true,
+    },
+    {
+      label: 'Flat Spot Price',
+      data: monthly.map(m => m.flatPrice),
+      borderColor: '#9ca3af', backgroundColor: 'transparent',
+      borderWidth: 2, pointRadius: 2, tension: 0.25,
+      borderDash: [4, 3],
+    },
+  ];
+  if (ppa) {
+    gwapDatasets.push({
+      label: 'PPA Strike',
+      data: monthly.map(() => ppa),
+      borderColor: '#7c3aed', backgroundColor: 'transparent',
+      borderWidth: 2, pointRadius: 0, tension: 0,
+      borderDash: [8, 4],
+    });
+  }
+  charts.gwap = new Chart(gwapCtx, {
+    type: 'line',
+    data: { labels, datasets: gwapDatasets },
+    options: {
+      ...CHART_DEFAULTS,
+      plugins: {
+        ...CHART_DEFAULTS.plugins,
+        legend: { display: true, position: 'top', align: 'end',
+          labels: { font: { family: "'IBM Plex Sans',sans-serif", size: 11 }, color: '#6b7280', boxWidth: 16, padding: 12, usePointStyle: true }
+        },
+        tooltip: {
+          ...CHART_DEFAULTS.plugins.tooltip,
+          callbacks: {
+            title: ctx => labels[ctx[0].dataIndex],
+            label: ctx => {
+              const m = monthly[ctx.dataIndex];
+              const lines = [` ${ctx.dataset.label}: ${fMWh(ctx.parsed.y)}`];
+              if (ctx.datasetIndex === 0 && m.captureRate != null)
+                lines.push(` Capture rate: ${m.captureRate}%`);
+              return lines;
+            },
+          },
+        },
+      },
+      scales: {
+        ...CHART_DEFAULTS.scales,
+        y: {
+          ...CHART_DEFAULTS.scales.y,
+          ticks: { ...CHART_DEFAULTS.scales.y.ticks, callback: v => '$' + v.toFixed(0) },
+        },
+      },
+    },
+  });
+
+  // Chart 3: Cumulative revenue
+  const cumulCtx = document.getElementById('cumulChart').getContext('2d');
+  const cumulDatasets = [{
+    label: 'Cumulative Spot Revenue',
+    data: monthly.map(m => m.cumulativeSpot),
+    borderColor: col, backgroundColor: col + '18',
+    borderWidth: 2.5, pointRadius: 0, tension: 0.1, fill: true,
+  }];
+  if (ppa) {
+    cumulDatasets.push({
+      label: 'Cumulative PPA Revenue',
+      data: monthly.map(m => m.cumulativePPA),
+      borderColor: '#7c3aed', backgroundColor: '#7c3aed18',
+      borderWidth: 2, pointRadius: 0, tension: 0.1, fill: true,
+      borderDash: [6, 3],
+    });
+  }
+  charts.cumul = new Chart(cumulCtx, {
+    type: 'line',
+    data: { labels, datasets: cumulDatasets },
+    options: {
+      ...CHART_DEFAULTS,
+      plugins: {
+        ...CHART_DEFAULTS.plugins,
+        legend: { display: !!ppa, position: 'top', align: 'end',
+          labels: { font: { family: "'IBM Plex Sans',sans-serif", size: 11 }, color: '#6b7280', boxWidth: 16, padding: 12, usePointStyle: true }
+        },
+        tooltip: {
+          ...CHART_DEFAULTS.plugins.tooltip,
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${fM(ctx.parsed.y)}`,
+          },
+        },
+      },
+      scales: {
+        ...CHART_DEFAULTS.scales,
+        y: {
+          ...CHART_DEFAULTS.scales.y,
+          ticks: { ...CHART_DEFAULTS.scales.y.ticks, callback: v => '$' + (v / 1e6).toFixed(1) + 'M' },
+        },
+      },
+    },
+  });
+
+  // ── Monthly table ────────────────────────────────────────────────────────────
+  const hasPPA = !!ppa;
+  document.getElementById('tableHead').innerHTML = `
+    <tr>
+      <th>Month</th>
+      <th>Season</th>
+      <th class="right">CF %</th>
+      <th class="right">Generation</th>
+      <th class="right">GWAP</th>
+      <th class="right">Flat Price</th>
+      <th class="right">Capture Rate</th>
+      <th class="right">Spot Revenue</th>
+      ${hasPPA ? '<th class="right">PPA Revenue</th><th class="right">Hedge P&amp;L</th>' : ''}
+      <th class="right">Cumulative</th>
+    </tr>`;
+
+  document.getElementById('tableBody').innerHTML = monthly.map(m => {
+    const captureClass = m.captureRate == null ? '' :
+      m.captureRate < 60 ? 'red' : m.captureRate < 80 ? 'amber' : 'green';
+    const hedgeClass = m.hedgePayoff == null ? '' : m.hedgePayoff >= 0 ? 'green' : 'red';
+
+    return `
+    <tr>
+      <td class="mono">${m.label}</td>
+      <td><span class="season-tag ${m.season}">${m.season}</span></td>
+      <td class="mono right">${(m.monthlyCF * 100).toFixed(1)}%</td>
+      <td class="mono right">${m.energyGWh.toFixed(2)} GWh</td>
+      <td class="mono right">${m.gwap != null ? '$' + m.gwap.toFixed(2) : '—'}</td>
+      <td class="mono right">${m.flatPrice != null ? '$' + m.flatPrice.toFixed(2) : '—'}</td>
+      <td class="mono right ${captureClass}">${fPct(m.captureRate)}</td>
+      <td class="mono right green">${m.revenueSpot != null ? fM(m.revenueSpot) : '—'}</td>
+      ${hasPPA ? `
+        <td class="mono right purple">${m.revenuePPA != null ? fM(m.revenuePPA) : '—'}</td>
+        <td class="mono right ${hedgeClass}">${m.hedgePayoff != null ? (m.hedgePayoff >= 0 ? '+' : '') + fM(m.hedgePayoff) : '—'}</td>
+      ` : ''}
+      <td class="mono right blue">${fM(m.cumulativeSpot)}</td>
+    </tr>`;
+  }).join('');
+
+  // ── Methodology dynamic text ──────────────────────────────────────────────────
+  const cfSource = assumptions.cfOverrideUsed
+    ? `User-specified capacity factor of ${(assumptions.annualCF * 100).toFixed(1)}%`
+    : `AEMO/AER default annual capacity factor of ${(assumptions.annualCF * 100).toFixed(1)}% for ${region} ${lbl}`;
+  document.getElementById('methoText').innerHTML =
+    `This simulation uses ${cfSource}, with Australian seasonal adjustments applied monthly. ` +
+    `Fleet GWAP is from OpenElectricity's actual regional ${lbl.toLowerCase()} generation data. ` +
+    (assumptions.mlfApplied !== 1.0 ? `An MLF of ${assumptions.mlfApplied} has been applied to all revenue figures. ` : '') +
+    (ppa ? `PPA overlay assumes a flat fixed-price contract at $${ppa}/MWh for 100% of simulated generation. ` : '');
+
+  // Timestamp
+  document.getElementById('simTimestamp').textContent =
+    new Date().toLocaleString('en-AU', { timeZone: 'Australia/Sydney', dateStyle: 'medium', timeStyle: 'short' });
+
+  // Show results
+  document.getElementById('results').style.display = 'block';
+  document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ── CSV export ────────────────────────────────────────────────────────────────
+function downloadCSV() {
+  if (!currentData) return;
+  const { monthly, inputs, region, fueltech, periodLabel, annual } = currentData;
+  const hasPPA = inputs.ppaStrike != null;
+  const lbl = techLabel(fueltech);
+
+  const headers = ['Month','Season','CF_%','Generation_GWh','GWAP_$/MWh','FlatPrice_$/MWh',
+    'CaptureRate_%','SpotRevenue_$','CumulativeSpot_$'];
+  if (hasPPA) headers.push('PPARevenue_$','HedgePnL_$','CumulativePPA_$');
+
+  const rows = monthly.map(m => {
+    const base = [
+      m.label, m.season, (m.monthlyCF * 100).toFixed(2), m.energyGWh,
+      m.gwap ?? '', m.flatPrice ?? '', m.captureRate ?? '',
+      m.revenueSpot ?? '', m.cumulativeSpot ?? '',
+    ];
+    if (hasPPA) base.push(m.revenuePPA ?? '', m.hedgePayoff ?? '', m.cumulativePPA ?? '');
+    return base.join(',');
+  });
+
+  const meta = [
+    `# Merchant Revenue Simulation — ${inputs.capacityMW}MW ${lbl} · ${region} · ${periodLabel}`,
+    `# Capacity Factor: ${(annual.assumedAnnualCF * 100).toFixed(2)}% annual (${annual.cfOverrideUsed ? 'override' : 'AEMO/AER default'})`,
+    `# MLF: ${inputs.mlf}`,
+    hasPPA ? `# PPA Strike: $${inputs.ppaStrike}/MWh` : '',
+    `# Annual GWAP: $${annual.annualGWAP}/MWh · Capture Rate: ${annual.annualCaptureRate}%`,
+    `# Generated: ${new Date().toISOString()}`,
+    '',
+  ].filter(Boolean);
+
+  const csv = [...meta, headers.join(','), ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `scenario_${region}_${fueltech}_${inputs.capacityMW}MW_${inputs.year || 'trailing12'}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Page-specific nav refresh override ───────────────────────────────────────
+window.__navRefresh = function () {
+  const badge = document.getElementById('cacheStatusBadge');
+  if (badge) { badge.textContent = 'Clearing scenario cache…'; badge.className = 'cache-status-badge visible'; }
+  fetch(`${API_BASE}/api/scenario?region=${document.getElementById('selRegion').value}&fueltech=${currentTech}&year=${document.getElementById('selYear').value}&force=true`)
+    .then(() => {
+      if (badge){ badge.textContent = '✓ Cache cleared'; badge.className = 'cache-status-badge visible fresh'; }
+      setTimeout(() => { badge.className = 'cache-status-badge'; }, 3000);
+    })
+    .catch(e => {
+      if (badge){ badge.textContent = '⚠ ' + e.message; badge.className = 'cache-status-badge visible missing'; }
+    });
+};
+
+// ── Default: run on load with SA solar ───────────────────────────────────────
+// Don't auto-run — let user configure first.
+</script>
+</body>
+</html>
