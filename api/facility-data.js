@@ -9,7 +9,6 @@
  *   MEWF      Mount Emerald Wind Farm      QLD1  wind  (MEWF1 is the unit DUID, MEWF is the facility code)
  *   CSPVPS    Collinsville Solar Farm      QLD1  solar
  *   STARFHILL Starfish Hill Wind Farm      SA1   wind
- *   WINDHILL  Windy Hill Wind Farm         QLD1  wind
  *   LGAPWF1   Lincoln Gap Wind Farm        SA1   wind
  *
  * The API is called with each code directly. The actual facility name
@@ -23,7 +22,6 @@ const FACILITIES = [
   { code: 'MEWF',     region: 'QLD1', type: 'wind',  fallbackName: 'Mount Emerald Wind Farm'    },
   { code: 'CSPVPS',    region: 'QLD1', type: 'solar', fallbackName: 'Collinsville Solar Farm'    },
   { code: 'STARFHILL', region: 'SA1',  type: 'wind',  fallbackName: 'Starfish Hill Wind Farm'    },
-  { code: 'WINDHILL',  region: 'QLD1', type: 'wind',  fallbackName: 'Windy Hill Wind Farm'       },
   { code: 'LGAPWF1',   region: 'SA1',  type: 'wind',  fallbackName: 'Lincoln Gap Wind Farm'      },
 ];
 
@@ -116,7 +114,12 @@ async function fetchFacilityPower(client, facilityCode, dateStart, dateEnd) {
       .sort((a, b) => new Date(a.ts) - new Date(b.ts));
 
   } catch (err) {
-    console.error(`[facility-data] Power fetch error for ${facilityCode}:`, err.message);
+    // "No data found" = facility offline/retired — expected, not an error.
+    if (/no data found/i.test(err.message)) {
+      console.warn(`[facility-data] No recent data for ${facilityCode} — may be offline or retired`);
+    } else {
+      console.error(`[facility-data] Power fetch error for ${facilityCode}:`, err.message);
+    }
     return [];
   }
 }
@@ -229,6 +232,7 @@ async function fetchFacilityData() {
       type:     f.type,
       capacity: capacity,
       found:    !!nameMap[f.code],
+      offline:  powerRows.length === 0,
       stats:    summarise(merged, capacity),
       data:     merged,
     };
