@@ -35,7 +35,7 @@
     { key: 'live',        label: 'Live Prices',   href: 'australian-energy-market.html' },
     { key: 'historical',  label: 'Historical',    href: 'historical-data.html'          },
     { key: 'generators',  label: 'Generators',    href: 'facility-data.html'            },
-    { key: 'batteries',   label: 'NSW Batteries', href: 'bess-nsw.html'                 },
+    { key: 'batteries',   label: 'Facilities', href: 'bess-nsw.html'                 },
     { key: 'analysis',    label: 'Analysis',      href: 'analysis.html'                 },
     { key: 'scenario',   label: 'Scenario Sim',  href: 'scenario.html'                 },
   ];
