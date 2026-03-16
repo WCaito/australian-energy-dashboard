@@ -15,9 +15,6 @@
     "api/live-prices.js": {
       "maxDuration": 60
     },
-    "api/news.js": {
-      "maxDuration": 60
-    },
     "api/facility-data.js": {
       "maxDuration": 60
     },
