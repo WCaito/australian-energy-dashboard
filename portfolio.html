@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Portfolio Builder — Australian Energy Dashboard</title>
+  <meta name="description" content="Design a physically flat power supply product from a portfolio of wind, solar and gas facilities.">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:        #ffffff;
+    --bg-subtle: #f9fafb;
+    --border:    #e5e7eb;
+    --text-1:    #111827;
+    --text-2:    #6b7280;
+    --text-3:    #9ca3af;
+    --accent:    #2563eb;
+    --positive:  #059669;
+    --negative:  #dc2626;
+    --amber:     #d97706;
+    --wind:      #2563eb;
+    --solar:     #f59e0b;
+    --gas:       #dc2626;
+    --spot:      #7c3aed;
+    --target:    #059669;
+  }
+  body {
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    background: var(--bg); color: var(--text-1);
+    min-height: 100vh; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .container { max-width: 1280px; margin: 0 auto; padding: 0 28px 96px; }
+
+  /* ── Section titles ──────────────────────────────────────────────────── */
+  .section-title {
+    font-family: 'IBM Plex Serif', Georgia, serif;
+    font-size: 1.125rem; font-weight: 600; color: var(--text-1);
+    letter-spacing: -0.01em; margin-bottom: 6px;
+  }
+  .section-desc { font-size: 0.875rem; color: var(--text-2); line-height: 1.65; max-width: 680px; margin-bottom: 20px; }
+
+  /* ── Two-column layout ───────────────────────────────────────────────── */
+  .builder-layout {
+    display: grid; grid-template-columns: 340px 1fr;
+    gap: 32px; align-items: start;
+    margin-bottom: 48px;
+  }
+  @media (max-width: 900px) { .builder-layout { grid-template-columns: 1fr; } }
+
+  /* ── Left panel ──────────────────────────────────────────────────────── */
+  .left-panel { position: sticky; top: 24px; }
+
+  .panel {
+    border: 1px solid var(--border); background: var(--bg-subtle);
+    margin-bottom: 16px;
+  }
+  .panel-head {
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.07em; color: var(--text-3);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .panel-body { padding: 16px; }
+
+  /* ── Facility search ─────────────────────────────────────────────────── */
+  .search-wrap { position: relative; margin-bottom: 10px; }
+  .search-input {
+    width: 100%; padding: 8px 12px; border: 1px solid var(--border);
+    background: var(--bg); font-size: 0.875rem; font-family: inherit;
+    color: var(--text-1); outline: none;
+  }
+  .search-input:focus { border-color: var(--accent); }
+  .search-results {
+    position: absolute; top: 100%; left: 0; right: 0;
+    background: var(--bg); border: 1px solid var(--border); border-top: none;
+    max-height: 240px; overflow-y: auto; z-index: 100;
+    display: none;
+  }
+  .search-results.open { display: block; }
+  .search-item {
+    padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--border);
+    font-size: 0.8125rem;
+  }
+  .search-item:last-child { border-bottom: none; }
+  .search-item:hover { background: var(--bg-subtle); }
+  .search-item-name { font-weight: 500; color: var(--text-1); }
+  .search-item-meta { font-size: 0.75rem; color: var(--text-3); font-family: 'IBM Plex Mono', monospace; }
+  .search-empty { padding: 12px; font-size: 0.8125rem; color: var(--text-3); text-align: center; }
+
+  /* ── Selected facilities ─────────────────────────────────────────────── */
+  .facility-card {
+    border: 1px solid var(--border); background: var(--bg);
+    padding: 10px 12px; margin-bottom: 8px;
+    display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start;
+  }
+  .facility-card-name { font-size: 0.8125rem; font-weight: 600; color: var(--text-1); margin-bottom: 2px; }
+  .facility-card-meta { font-size: 0.75rem; color: var(--text-3); font-family: 'IBM Plex Mono', monospace; }
+  .facility-card-mlf {
+    display: flex; align-items: center; gap: 6px; margin-top: 6px;
+    font-size: 0.75rem; color: var(--text-2);
+  }
+  .facility-card-mlf input {
+    width: 64px; padding: 3px 6px; border: 1px solid var(--border);
+    font-size: 0.75rem; font-family: 'IBM Plex Mono', monospace;
+    background: var(--bg); color: var(--text-1);
+  }
+  .fueltech-dot {
+    display: inline-block; width: 8px; height: 8px;
+    border-radius: 50%; margin-right: 4px; flex-shrink: 0;
+  }
+  .remove-btn {
+    background: none; border: none; cursor: pointer;
+    color: var(--text-3); font-size: 1rem; padding: 0 2px; line-height: 1;
+  }
+  .remove-btn:hover { color: var(--negative); }
+
+  /* ── Config inputs ───────────────────────────────────────────────────── */
+  .ctrl-row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .ctrl-group { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 80px; }
+  .ctrl-label {
+    font-size: 0.6875rem; font-weight: 600; color: var(--text-3);
+    text-transform: uppercase; letter-spacing: 0.07em;
+  }
+  .ctrl-group select, .ctrl-group input {
+    padding: 7px 10px; border: 1px solid var(--border);
+    background: var(--bg); font-size: 0.875rem; font-family: inherit;
+    color: var(--text-1); outline: none; width: 100%;
+  }
+  .ctrl-group select { appearance: none; cursor: pointer; padding-right: 24px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236b7280' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 8px center; }
+  .ctrl-group input:focus, .ctrl-group select:focus { border-color: var(--accent); }
+  .ctrl-group input[type="number"] { font-family: 'IBM Plex Mono', monospace; }
+
+  .run-btn {
+    width: 100%; padding: 10px 24px; background: var(--text-1); color: #fff;
+    border: none; font-family: 'IBM Plex Sans', sans-serif; font-weight: 600;
+    font-size: 0.9375rem; cursor: pointer; transition: background 0.15s;
+    margin-top: 4px;
+  }
+  .run-btn:hover:not(:disabled) { background: var(--accent); }
+  .run-btn:disabled { background: var(--text-3); cursor: not-allowed; }
+
+  /* ── Right panel — results ───────────────────────────────────────────── */
+  .empty-state {
+    border: 1px solid var(--border); padding: 80px 32px; text-align: center;
+    color: var(--text-3); background: var(--bg-subtle);
+  }
+  .empty-title { font-family: 'IBM Plex Serif', serif; font-size: 1.125rem; margin-bottom: 8px; color: var(--text-2); }
+  .empty-sub { font-size: 0.875rem; }
+
+  /* ── Spinner ─────────────────────────────────────────────────────────── */
+  .loading-block {
+    padding: 80px 24px; text-align: center; color: var(--text-3);
+    display: flex; align-items: center; justify-content: center; gap: 14px; flex-direction: column;
+    border: 1px solid var(--border); background: var(--bg-subtle);
+  }
+  .spinner { width: 28px; height: 28px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── KPI rail ────────────────────────────────────────────────────────── */
+  .kpi-rail {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1px; background: var(--border); border: 1px solid var(--border);
+    margin-bottom: 32px;
+  }
+  .kpi-cell { background: var(--bg); padding: 16px 18px 14px; }
+  .kpi-lbl { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-3); margin-bottom: 5px; font-weight: 500; }
+  .kpi-val { font-family: 'IBM Plex Mono', monospace; font-size: 1.1875rem; font-weight: 500; color: var(--text-1); line-height: 1.2; }
+  .kpi-val.green  { color: var(--positive); }
+  .kpi-val.amber  { color: var(--amber); }
+  .kpi-val.red    { color: var(--negative); }
+  .kpi-val.blue   { color: var(--accent); }
+  .kpi-sub { font-size: 0.6875rem; color: var(--text-3); margin-top: 3px; font-family: 'IBM Plex Mono', monospace; }
+
+  /* ── Energy mix bar ──────────────────────────────────────────────────── */
+  .mix-bar-wrap { margin-bottom: 32px; }
+  .mix-bar {
+    height: 20px; display: flex; overflow: hidden;
+    border: 1px solid var(--border); margin-bottom: 8px;
+  }
+  .mix-seg { height: 100%; transition: width 0.4s; }
+  .mix-legend { display: flex; gap: 16px; flex-wrap: wrap; }
+  .mix-item { display: flex; align-items: center; gap: 5px; font-size: 0.75rem; color: var(--text-2); }
+  .mix-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+
+  /* ── Charts ──────────────────────────────────────────────────────────── */
+  .charts-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 1px; background: var(--border); border: 1px solid var(--border);
+    margin-bottom: 1px;
+  }
+  .chart-full { border: 1px solid var(--border); margin-bottom: 32px; border-top: none; }
+  @media (max-width: 860px) { .charts-grid { grid-template-columns: 1fr; } }
+  .chart-card { background: var(--bg); }
+  .chart-head {
+    padding: 14px 20px 10px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  }
+  .chart-title { font-family: 'IBM Plex Serif', serif; font-size: 0.9375rem; font-weight: 600; }
+  .chart-meta { font-size: 0.72rem; color: var(--text-3); font-family: 'IBM Plex Mono', monospace; margin-top: 2px; }
+  .chart-legend { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 0.72rem; color: var(--text-2); }
+  .legend-swatch { width: 16px; height: 3px; border-radius: 1px; }
+  .chart-body { padding: 16px 12px 12px; position: relative; height: 280px; }
+  .chart-body.tall { height: 340px; }
+
+  /* ── Monthly table ───────────────────────────────────────────────────── */
+  .table-section { margin-bottom: 48px; }
+  .tbl-wrap { overflow-x: auto; border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+  th { padding: 8px 14px; text-align: left; background: var(--bg-subtle); border-bottom: 1px solid var(--border); font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); font-weight: 600; white-space: nowrap; }
+  td { padding: 7px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--bg-subtle); }
+  .mono { font-family: 'IBM Plex Mono', monospace; }
+  .right { text-align: right; }
+  td.green { color: var(--positive); }
+  td.red   { color: var(--negative); }
+  td.amber { color: var(--amber); }
+
+  /* ── Methodology ─────────────────────────────────────────────────────── */
+  .methodology {
+    border: 1px solid var(--border); padding: 20px 24px;
+    background: var(--bg-subtle); margin-bottom: 48px;
+    font-size: 0.8125rem; color: var(--text-2); line-height: 1.7;
+  }
+  .methodology strong { color: var(--text-1); }
+
+  /* ── Error ───────────────────────────────────────────────────────────── */
+  .error-block {
+    border: 1px solid var(--negative); padding: 16px 20px;
+    background: #fef2f2; color: var(--negative); font-size: 0.875rem;
+  }
+
+  /* ── Coverage pill ───────────────────────────────────────────────────── */
+  .coverage-pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 600;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .pill-green { background: #dcfce7; color: var(--positive); }
+  .pill-amber { background: #fef9c3; color: var(--amber); }
+  .pill-red   { background: #fee2e2; color: var(--negative); }
+  </style>
+</head>
+<body>
+<div id="site-nav"></div>
+<script>
+  window.NAV_TITLE    = 'Portfolio Builder';
+  window.NAV_SUBTITLE = 'Design a physically flat power supply from a portfolio of real NEM facilities.';
+</script>
+<script src="nav.js" data-active="portfolio"></script>
+
+<div class="container">
+
+  <div class="builder-layout">
+
+    <!-- ════════════════════════════════ LEFT PANEL ════════════════════════ -->
+    <div class="left-panel">
+
+      <!-- Facility selector -->
+      <div class="panel">
+        <div class="panel-head">
+          <span>Portfolio Facilities</span>
+          <span id="facilityCount" style="font-weight:400;font-size:0.7rem;color:var(--text-2)">0 selected</span>
+        </div>
+        <div class="panel-body">
+          <div class="search-wrap">
+            <input type="text" id="facilitySearch" class="search-input" placeholder="Search by name, code or region…" autocomplete="off">
+            <div id="searchResults" class="search-results"></div>
+          </div>
+          <div id="selectedFacilities"></div>
+          <div id="noFacilitiesHint" style="font-size:0.8rem;color:var(--text-3);text-align:center;padding:8px 0;">
+            Search and add facilities above
+          </div>
+        </div>
+      </div>
+
+      <!-- Target & product config -->
+      <div class="panel">
+        <div class="panel-head">Product Configuration</div>
+        <div class="panel-body">
+          <div class="ctrl-row">
+            <div class="ctrl-group">
+              <label class="ctrl-label">Target MW</label>
+              <input type="number" id="cfgTarget" value="100" min="1" max="2000" step="1">
+            </div>
+            <div class="ctrl-group">
+              <label class="ctrl-label">Delivery Region</label>
+              <select id="cfgRegion">
+                <option value="NSW1">NSW1</option>
+                <option value="VIC1">VIC1</option>
+                <option value="QLD1">QLD1</option>
+                <option value="SA1" selected>SA1</option>
+                <option value="TAS1">TAS1</option>
+              </select>
+            </div>
+          </div>
+          <div class="ctrl-row">
+            <div class="ctrl-group">
+              <label class="ctrl-label">Year</label>
+              <select id="cfgYear">
+                <option value="trailing12">Trailing 12m</option>
+                <option value="2025">2025</option>
+                <option value="2024" selected>2024</option>
+                <option value="2023">2023</option>
+              </select>
+            </div>
+            <div class="ctrl-group">
+              <label class="ctrl-label">Flat Price $/MWh</label>
+              <input type="number" id="cfgFlatPrice" value="95" min="0" max="500" step="1">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Gas config -->
+      <div class="panel">
+        <div class="panel-head">Gas Firming</div>
+        <div class="panel-body">
+          <div class="ctrl-row">
+            <div class="ctrl-group">
+              <label class="ctrl-label">Gas Capacity MW</label>
+              <input type="number" id="cfgGasMW" value="0" min="0" max="2000" step="1" placeholder="0 = no gas">
+            </div>
+            <div class="ctrl-group">
+              <label class="ctrl-label">Gas SRMC $/MWh</label>
+              <input type="number" id="cfgGasSRMC" value="120" min="0" max="500" step="5">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Economics -->
+      <div class="panel">
+        <div class="panel-head">Economics (Seller)</div>
+        <div class="panel-body">
+          <div class="ctrl-row">
+            <div class="ctrl-group">
+              <label class="ctrl-label">Renewable LCOE $/MWh</label>
+              <input type="number" id="cfgLCOE" value="65" min="0" max="300" step="1">
+            </div>
+          </div>
+          <div style="font-size:0.72rem;color:var(--text-3);line-height:1.5;margin-top:4px;">
+            Blended cost across all renewable facilities. Used to calculate seller margin only.
+          </div>
+        </div>
+      </div>
+
+      <button id="runBtn" class="run-btn" disabled>Add facilities to run simulation</button>
+
+    </div>
+
+    <!-- ════════════════════════════════ RIGHT PANEL ═══════════════════════ -->
+    <div id="results">
+
+      <div class="empty-state" id="emptyState">
+        <div class="empty-title">Configure your portfolio</div>
+        <div class="empty-sub">Add facilities from the search panel, set your target MW and gas firming, then run the simulation.</div>
+      </div>
+
+      <div class="loading-block" id="loadingState" style="display:none">
+        <div class="spinner"></div>
+        <div>
+          <strong>Fetching generation and price data…</strong>
+          <p style="margin-top:4px;font-size:0.8rem;">First run fetches hourly data for each facility and month. Subsequent runs use Redis cache and are near-instant.</p>
+        </div>
+      </div>
+
+      <div id="errorState" style="display:none"></div>
+
+      <div id="resultsContent" style="display:none">
+
+        <!-- KPI rail -->
+        <div class="kpi-rail">
+          <div class="kpi-cell">
+            <div class="kpi-lbl">Physical Coverage</div>
+            <div class="kpi-val" id="kCoverage">—</div>
+            <div class="kpi-sub" id="kCoverageSub">% of hours ≥ target</div>
+          </div>
+          <div class="kpi-cell">
+            <div class="kpi-lbl">Flat Revenue</div>
+            <div class="kpi-val blue" id="kRevenue">—</div>
+            <div class="kpi-sub" id="kRevenueSub">annual total</div>
+          </div>
+          <div class="kpi-cell">
+            <div class="kpi-lbl">Net Margin</div>
+            <div class="kpi-val green" id="kMargin">—</div>
+            <div class="kpi-sub" id="kMarginSub">margin %</div>
+          </div>
+          <div class="kpi-cell">
+            <div class="kpi-lbl">Blended Cost to Buyer</div>
+            <div class="kpi-val" id="kCost">—</div>
+            <div class="kpi-sub">$/MWh all-in</div>
+          </div>
+          <div class="kpi-cell">
+            <div class="kpi-lbl">Spot Purchase Cost</div>
+            <div class="kpi-val red" id="kSpotCost">—</div>
+            <div class="kpi-sub" id="kSpotSub">annual</div>
+          </div>
+          <div class="kpi-cell">
+            <div class="kpi-lbl">Worst Week</div>
+            <div class="kpi-val amber" id="kWorstWeek">—</div>
+            <div class="kpi-sub" id="kWorstWeekSub">coverage in worst 7d</div>
+          </div>
+        </div>
+
+        <!-- Energy mix bar -->
+        <div class="mix-bar-wrap">
+          <div class="mix-bar" id="mixBar">
+            <div class="mix-seg" id="mixWind"   style="background: var(--wind);opacity:0.8"></div>
+            <div class="mix-seg" id="mixSolar"  style="background: var(--solar);opacity:0.8"></div>
+            <div class="mix-seg" id="mixGas"    style="background: var(--gas);opacity:0.7"></div>
+            <div class="mix-seg" id="mixSpot"   style="background: var(--spot);opacity:0.7"></div>
+            <div class="mix-seg" id="mixSurp"   style="background:#d1d5db;opacity:0.8"></div>
+          </div>
+          <div class="mix-legend">
+            <div class="mix-item"><div class="mix-swatch" style="background:var(--wind)"></div><span id="mixWindLbl">Wind</span></div>
+            <div class="mix-item"><div class="mix-swatch" style="background:var(--solar)"></div><span id="mixSolarLbl">Solar</span></div>
+            <div class="mix-item"><div class="mix-swatch" style="background:var(--gas)"></div><span id="mixGasLbl">Gas</span></div>
+            <div class="mix-item"><div class="mix-swatch" style="background:var(--spot)"></div><span id="mixSpotLbl">Spot Purchase</span></div>
+            <div class="mix-item"><div class="mix-swatch" style="background:#d1d5db"></div><span id="mixSurpLbl">Surplus (curtailed)</span></div>
+          </div>
+        </div>
+
+        <!-- Coverage curve + Worst week stack -->
+        <div class="charts-grid">
+          <div class="chart-card">
+            <div class="chart-head">
+              <div>
+                <div class="chart-title">Coverage Curve</div>
+                <div class="chart-meta">Gas capacity (MW) required for each coverage level</div>
+              </div>
+              <div class="chart-legend">
+                <div class="legend-item"><div class="legend-swatch" style="background:var(--accent)"></div>Coverage %</div>
+              </div>
+            </div>
+            <div class="chart-body"><canvas id="coverageChart"></canvas></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-head">
+              <div>
+                <div class="chart-title">Worst 7-Day Window</div>
+                <div class="chart-meta" id="worstWeekDates">Lowest renewable supply period</div>
+              </div>
+              <div class="chart-legend">
+                <div class="legend-item"><div class="legend-swatch" style="background:var(--wind)"></div>Wind</div>
+                <div class="legend-item"><div class="legend-swatch" style="background:var(--solar)"></div>Solar</div>
+                <div class="legend-item"><div class="legend-swatch" style="background:var(--gas)"></div>Gas</div>
+                <div class="legend-item"><div class="legend-swatch" style="background:var(--spot)"></div>Spot</div>
+              </div>
+            </div>
+            <div class="chart-body"><canvas id="worstWeekChart"></canvas></div>
+          </div>
+        </div>
+
+        <!-- Monthly P&L chart -->
+        <div class="chart-full">
+          <div class="chart-card">
+            <div class="chart-head">
+              <div>
+                <div class="chart-title">Monthly P&amp;L Breakdown</div>
+                <div class="chart-meta">Flat revenue vs costs vs net margin — seller perspective</div>
+              </div>
+              <div class="chart-legend">
+                <div class="legend-item"><div class="legend-swatch" style="background:var(--accent);opacity:0.7"></div>Flat Revenue</div>
+                <div class="legend-item"><div class="legend-swatch" style="background:#374151"></div>Renewable Cost</div>
+                <div class="legend-item"><div class="legend-swatch" style="background:var(--gas);opacity:0.7"></div>Gas Cost</div>
+                <div class="legend-item"><div class="legend-swatch" style="background:var(--spot);opacity:0.7"></div>Spot Cost</div>
+                <div class="legend-item"><div class="legend-swatch" style="background:var(--positive)"></div>Net Margin</div>
+              </div>
+            </div>
+            <div class="chart-body tall"><canvas id="plChart"></canvas></div>
+          </div>
+        </div>
+
+        <!-- Monthly table -->
+        <div class="table-section">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+            <h2 class="section-title" style="margin-bottom:0">Monthly Breakdown</h2>
+            <button onclick="downloadCSV()" style="padding:5px 14px;border:1px solid var(--border);background:var(--bg);font-size:0.8rem;cursor:pointer;color:var(--text-2);">↓ CSV</button>
+          </div>
+          <div class="tbl-wrap">
+            <table id="monthlyTable">
+              <thead>
+                <tr>
+                  <th>Month</th>
+                  <th class="right">Target MWh</th>
+                  <th class="right">Renewable</th>
+                  <th class="right">Gas Fired</th>
+                  <th class="right">Spot Purch</th>
+                  <th class="right">Surplus</th>
+                  <th class="right">Coverage</th>
+                  <th class="right">Avg Spot</th>
+                  <th class="right">Revenue</th>
+                  <th class="right">Gas Cost</th>
+                  <th class="right">Spot Cost</th>
+                  <th class="right">Net Margin</th>
+                </tr>
+              </thead>
+              <tbody id="monthlyTbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Methodology -->
+        <div class="methodology">
+          <strong>Methodology.</strong>
+          Generation data: OpenElectricity API at 1-hour intervals (max 32 days per request, fetched as 12 monthly chunks per facility, cached 7 days per facility-month in Redis).
+          Spot prices: AEMO Price &amp; Demand CSVs at 30-min resolution, averaged in pairs to hourly for alignment.
+          Gas dispatch is economically rational — gas fires only when spot price ≥ gas SRMC; otherwise shortfall is purchased from spot directly.
+          P&amp;L uses: <em>flatRevenue = targetMW × flatPrice</em>; <em>netMargin = flatRevenue + curtailmentRevenue − gasCost − spotCost − renewableCost</em>.
+          Coverage = % of hours where (renewable output + gas fired) ≥ target MW.
+          The coverage curve sweeps gas capacity from 0 → target MW in 50 steps using the same renewable output time series.
+          <strong>Limitations:</strong> 1-hour generation data smooths sub-hourly dispatch events. Curtailment revenue assumes surplus can be exported at spot (negative price hours are excluded). MLF applied to generation output only.
+        </div>
+
+      </div><!-- /resultsContent -->
+    </div><!-- /results -->
+  </div><!-- /builder-layout -->
+</div><!-- /container -->
+
+<script>
+'use strict';
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let allFacilities = [];
+let selectedFacilities = []; // [{code, name, region, fueltech, capacity, mlf}]
+let lastData = null;
+let charts   = {};
+
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadFacilityList();
+  setupSearch();
+  document.getElementById('runBtn').addEventListener('click', runSimulation);
+});
+
+// ── Facility list ─────────────────────────────────────────────────────────────
+async function loadFacilityList() {
+  try {
+    const res  = await fetch('/api/facilities-list');
+    const data = await res.json();
+    if (data.facilities) allFacilities = data.facilities;
+  } catch (e) {
+    console.warn('Could not load facilities list:', e.message);
+  }
+}
+
+// ── Search ────────────────────────────────────────────────────────────────────
+function setupSearch() {
+  const input   = document.getElementById('facilitySearch');
+  const results = document.getElementById('searchResults');
+
+  input.addEventListener('input', () => {
+    const q = input.value.trim().toLowerCase();
+    if (!q) { results.classList.remove('open'); return; }
+
+    const matches = allFacilities
+      .filter(f => !selectedFacilities.find(s => s.code === f.code))
+      .filter(f => `${f.code} ${f.name} ${f.region} ${f.fueltech}`.toLowerCase().includes(q))
+      .slice(0, 12);
+
+    if (matches.length === 0) {
+      results.innerHTML = '<div class="search-empty">No matching facilities found</div>';
+    } else {
+      results.innerHTML = matches.map(f => `
+        <div class="search-item" data-code="${f.code}" onclick="addFacility('${f.code}')">
+          <div class="search-item-name">
+            <span class="fueltech-dot" style="background:${ftColor(f.fueltech)}"></span>
+            ${f.name}
+          </div>
+          <div class="search-item-meta">${f.code} · ${f.region} · ${ftLabel(f.fueltech)}${f.capacity ? ' · ' + f.capacity + ' MW' : ''}</div>
+        </div>`).join('');
+    }
+    results.classList.add('open');
+  });
+
+  input.addEventListener('focus', () => { if (input.value.trim()) results.classList.add('open'); });
+  document.addEventListener('click', e => { if (!e.target.closest('.search-wrap')) results.classList.remove('open'); });
+}
+
+function addFacility(code) {
+  const f = allFacilities.find(x => x.code === code);
+  if (!f || selectedFacilities.find(x => x.code === code)) return;
+  selectedFacilities.push({ ...f, mlf: 1.0 });
+  document.getElementById('facilitySearch').value = '';
+  document.getElementById('searchResults').classList.remove('open');
+  renderSelectedFacilities();
+  updateRunBtn();
+}
+
+function removeFacility(code) {
+  selectedFacilities = selectedFacilities.filter(f => f.code !== code);
+  renderSelectedFacilities();
+  updateRunBtn();
+}
+
+function renderSelectedFacilities() {
+  const container = document.getElementById('selectedFacilities');
+  const hint      = document.getElementById('noFacilitiesHint');
+  const count     = document.getElementById('facilityCount');
+
+  count.textContent = selectedFacilities.length
+    ? `${selectedFacilities.length} selected` : '0 selected';
+
+  if (selectedFacilities.length === 0) {
+    container.innerHTML = '';
+    hint.style.display = 'block';
+    return;
+  }
+  hint.style.display = 'none';
+
+  container.innerHTML = selectedFacilities.map(f => `
+    <div class="facility-card" id="fc-${f.code}">
+      <div>
+        <div class="facility-card-name">
+          <span class="fueltech-dot" style="background:${ftColor(f.fueltech)}"></span>
+          ${f.name}
+        </div>
+        <div class="facility-card-meta">${f.code} · ${f.region}${f.capacity ? ' · ' + f.capacity + ' MW' : ''}</div>
+        <div class="facility-card-mlf">
+          <span>MLF</span>
+          <input type="number" value="${f.mlf}" min="0.5" max="1.2" step="0.01"
+            onchange="updateMLF('${f.code}', this.value)" style="width:64px">
+          <span style="color:var(--text-3)">network loss factor</span>
+        </div>
+      </div>
+      <button class="remove-btn" onclick="removeFacility('${f.code}')" title="Remove">✕</button>
+    </div>`).join('');
+}
+
+function updateMLF(code, val) {
+  const f = selectedFacilities.find(x => x.code === code);
+  if (f) f.mlf = parseFloat(val) || 1.0;
+}
+
+function updateRunBtn() {
+  const btn = document.getElementById('runBtn');
+  if (selectedFacilities.length === 0) {
+    btn.disabled = true;
+    btn.textContent = 'Add facilities to run simulation';
+  } else {
+    btn.disabled = false;
+    btn.textContent = `Run Simulation (${selectedFacilities.length} facilit${selectedFacilities.length === 1 ? 'y' : 'ies'})`;
+  }
+}
+
+// ── fueltech helpers ──────────────────────────────────────────────────────────
+function ftColor(ft) {
+  if (!ft) return '#9ca3af';
+  const f = ft.toLowerCase();
+  if (f.includes('wind'))  return '#2563eb';
+  if (f.includes('solar')) return '#f59e0b';
+  if (f.includes('gas'))   return '#dc2626';
+  return '#9ca3af';
+}
+function ftLabel(ft) {
+  if (!ft) return 'Other';
+  const f = ft.toLowerCase();
+  if (f === 'solar_utility') return 'Solar';
+  if (f === 'wind')          return 'Wind';
+  if (f === 'gas_ocgt')      return 'Gas OCGT';
+  if (f === 'gas_ccgt')      return 'Gas CCGT';
+  return ft;
+}
+function isSolar(code) {
+  const f = selectedFacilities.find(x => x.code === code);
+  return f && f.fueltech?.toLowerCase().includes('solar');
+}
+function isWind(code) {
+  const f = selectedFacilities.find(x => x.code === code);
+  return f && f.fueltech?.toLowerCase().includes('wind');
+}
+
+// ── Run simulation ────────────────────────────────────────────────────────────
+async function runSimulation() {
+  if (selectedFacilities.length === 0) return;
+
+  const codes   = selectedFacilities.map(f => f.code).join(',');
+  const mlfs    = selectedFacilities.map(f => f.mlf).join(',');
+  const target  = document.getElementById('cfgTarget').value;
+  const region  = document.getElementById('cfgRegion').value;
+  const year    = document.getElementById('cfgYear').value;
+  const flat    = document.getElementById('cfgFlatPrice').value;
+  const gasMW   = document.getElementById('cfgGasMW').value;
+  const srmc    = document.getElementById('cfgGasSRMC').value;
+  const lcoe    = document.getElementById('cfgLCOE').value;
+
+  const params = new URLSearchParams({
+    facilities: codes, mlfs,
+    target_mw: target, delivery_region: region, year,
+    flat_price: flat, gas_mw: gasMW, gas_srmc: srmc, renewable_lcoe: lcoe,
+    coverage_curve: 'true',
+  });
+
+  showState('loading');
+  document.getElementById('runBtn').disabled = true;
+
+  try {
+    const res  = await fetch(`/api/portfolio?${params}`);
+    const data = await res.json();
+
+    if (!res.ok || !data.success) {
+      showError(data.error || data.message || 'Simulation failed');
+      return;
+    }
+
+    lastData = data;
+    renderResults(data);
+    showState('results');
+
+  } catch (e) {
+    showError(`Network error: ${e.message}`);
+  } finally {
+    document.getElementById('runBtn').disabled = false;
+  }
+}
+
+// ── State management ──────────────────────────────────────────────────────────
+function showState(state) {
+  ['emptyState','loadingState','errorState','resultsContent'].forEach(id => {
+    document.getElementById(id).style.display = 'none';
+  });
+  const map = { empty:'emptyState', loading:'loadingState', error:'errorState', results:'resultsContent' };
+  document.getElementById(map[state]).style.display = '';
+}
+
+function showError(msg) {
+  document.getElementById('errorState').innerHTML = `<div class="error-block"><strong>Error:</strong> ${msg}</div>`;
+  showState('error');
+}
+
+// ── Render results ─────────────────────────────────────────────────────────────
+function renderResults(data) {
+  const { annual, monthly, worstWeek, coverageCurve, config } = data;
+
+  // ── KPIs ──────────────────────────────────────────────────────────────────
+  const covPct = annual.coveragePct;
+  const covEl  = document.getElementById('kCoverage');
+  covEl.textContent = covPct != null ? covPct.toFixed(1) + '%' : '—';
+  covEl.className = 'kpi-val ' + (covPct >= 95 ? 'green' : covPct >= 80 ? 'amber' : 'red');
+  document.getElementById('kCoverageSub').textContent = `${annual.hoursTotal?.toLocaleString()} total hours`;
+
+  document.getElementById('kRevenue').textContent = annual.revenueM ? `$${annual.revenueM}M` : '—';
+  document.getElementById('kRevenueSub').textContent = `$${fmtNum(annual.totalFlatRevenue)}`;
+
+  const marginEl  = document.getElementById('kMargin');
+  const marginPos = annual.totalNetMargin >= 0;
+  marginEl.textContent = annual.marginM != null ? `$${annual.marginM}M` : '—';
+  marginEl.className   = 'kpi-val ' + (marginPos ? 'green' : 'red');
+  document.getElementById('kMarginSub').textContent = annual.marginPct != null ? `${annual.marginPct}% of revenue` : '';
+
+  document.getElementById('kCost').textContent = annual.blendedCostPerMWh != null ? `$${annual.blendedCostPerMWh}/MWh` : '—';
+
+  document.getElementById('kSpotCost').textContent = `$${fmtNum(annual.totalSpotCost)}`;
+  document.getElementById('kSpotSub').textContent  = annual.spotFillPct != null ? `${annual.spotFillPct}% from spot` : '';
+
+  if (worstWeek) {
+    document.getElementById('kWorstWeek').textContent = worstWeek.avgCoverageRenewablePct?.toFixed(1) + '%';
+    document.getElementById('kWorstWeekSub').textContent = `${worstWeek.startDate} → ${worstWeek.endDate}`;
+  }
+
+  // ── Energy mix bar ─────────────────────────────────────────────────────────
+  const totalMWh = (annual.renewableMWh || 0) + (annual.gasFiredMWh || 0) + (annual.spotPurchMWh || 0) + (annual.surplusMWh || 0);
+  const windMWh  = data.facilities.filter(f => isWind(f.code)).reduce((s, f) => s + (annual.renewableMWh || 0) / data.facilities.length, 0);
+  const solMWh   = annual.renewableMWh - windMWh;
+
+  function pct(v) { return totalMWh > 0 ? (v / totalMWh * 100).toFixed(1) + '%' : '0%'; }
+  document.getElementById('mixWind').style.width  = pct(windMWh);
+  document.getElementById('mixSolar').style.width = pct(Math.max(0, solMWh));
+  document.getElementById('mixGas').style.width   = pct(annual.gasFiredMWh || 0);
+  document.getElementById('mixSpot').style.width  = pct(annual.spotPurchMWh || 0);
+  document.getElementById('mixSurp').style.width  = pct(annual.surplusMWh || 0);
+
+  document.getElementById('mixWindLbl').textContent  = `Wind ${pct(windMWh)} MWh`;
+  document.getElementById('mixSolarLbl').textContent = `Solar ${pct(Math.max(0, solMWh))} MWh`;
+  document.getElementById('mixGasLbl').textContent   = `Gas ${pct(annual.gasFiredMWh || 0)} MWh`;
+  document.getElementById('mixSpotLbl').textContent  = `Spot ${pct(annual.spotPurchMWh || 0)} MWh`;
+  document.getElementById('mixSurpLbl').textContent  = `Surplus ${pct(annual.surplusMWh || 0)} MWh`;
+
+  // ── Charts ─────────────────────────────────────────────────────────────────
+  destroyCharts();
+  renderCoverageChart(coverageCurve, config.gasMW, config.targetMW);
+  renderWorstWeekChart(worstWeek, data.facilities);
+  renderPLChart(monthly);
+  renderTable(monthly, config.targetMW);
+}
+
+// ── Coverage Curve chart ───────────────────────────────────────────────────────
+function renderCoverageChart(curve, currentGasMW, targetMW) {
+  if (!curve?.length) return;
+  const ctx = document.getElementById('coverageChart').getContext('2d');
+  const labels = curve.map(p => p.gasMW.toFixed(0));
+  const values = curve.map(p => p.coveragePct);
+
+  // Find index closest to current gas MW
+  const markerIdx = curve.reduce((best, p, i) =>
+    Math.abs(p.gasMW - currentGasMW) < Math.abs(curve[best].gasMW - currentGasMW) ? i : best, 0);
+
+  charts.coverage = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Coverage %',
+        data: values,
+        borderColor: '#2563eb',
+        backgroundColor: 'rgba(37,99,235,0.08)',
+        fill: true, tension: 0.3,
+        pointRadius: values.map((_, i) => i === markerIdx ? 5 : 0),
+        pointBackgroundColor: '#2563eb',
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: ctx => `${ctx[0].label} MW gas`,
+            label: ctx => `Coverage: ${ctx.parsed.y.toFixed(1)}%`,
+          },
+        },
+        annotation: {
+          annotations: {
+            line95: { type: 'line', yMin: 95, yMax: 95, borderColor: '#059669', borderWidth: 1, borderDash: [4,3], label: { content: '95%', display: true, position: 'start', backgroundColor: '#059669', color: '#fff', font: { size: 10 } } },
+            line99: { type: 'line', yMin: 99, yMax: 99, borderColor: '#d97706', borderWidth: 1, borderDash: [4,3], label: { content: '99%', display: true, position: 'start', backgroundColor: '#d97706', color: '#fff', font: { size: 10 } } },
+          },
+        },
+      },
+      scales: {
+        x: { ticks: { maxTicksLimit: 8, color: '#9ca3af', font: { size: 10 } }, grid: { color: '#f3f4f6' }, title: { display: true, text: 'Gas firming capacity (MW)', color: '#6b7280', font: { size: 11 } } },
+        y: { min: 0, max: 100, ticks: { color: '#9ca3af', font: { size: 10 }, callback: v => v + '%' }, grid: { color: '#f3f4f6' }, title: { display: true, text: 'Physical coverage', color: '#6b7280', font: { size: 11 } } },
+      },
+    },
+  });
+}
+
+// ── Worst week chart ───────────────────────────────────────────────────────────
+function renderWorstWeekChart(worstWeek, facilities) {
+  if (!worstWeek?.hourlyData?.length) return;
+  const ctx = document.getElementById('worstWeekChart').getContext('2d');
+
+  const hours  = worstWeek.hourlyData;
+  const labels = hours.map((h, i) => i % 24 === 0 ? h.hour.slice(5, 10) : '');
+
+  // Sum facility outputs into wind / solar groups
+  const windOutputs  = hours.map(h => {
+    return facilities.filter(f => isWind(f.code)).reduce((s, f) => s + (h.facilityOutputs?.[f.code] || 0), 0);
+  });
+  const solarOutputs = hours.map(h => {
+    return facilities.filter(f => isSolar(f.code)).reduce((s, f) => s + (h.facilityOutputs?.[f.code] || 0), 0);
+  });
+  const gasArr  = hours.map(h => h.gasFired);
+  const spotArr = hours.map(h => h.spotPurch);
+
+  document.getElementById('worstWeekDates').textContent = `${worstWeek.startDate} → ${worstWeek.endDate} · ${worstWeek.avgCoverageRenewablePct?.toFixed(1)}% avg renewable coverage`;
+
+  charts.worstWeek = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Wind',         data: windOutputs,  backgroundColor: 'rgba(37,99,235,0.75)',  stack: 's' },
+        { label: 'Solar',        data: solarOutputs, backgroundColor: 'rgba(245,158,11,0.75)', stack: 's' },
+        { label: 'Gas',          data: gasArr,        backgroundColor: 'rgba(220,38,38,0.65)',  stack: 's' },
+        { label: 'Spot Purchase',data: spotArr,       backgroundColor: 'rgba(124,58,237,0.6)',  stack: 's' },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: ctx => hours[ctx[0].dataIndex]?.hour?.slice(5, 16) || '',
+          },
+        },
+      },
+      scales: {
+        x: { stacked: true, ticks: { color: '#9ca3af', font: { size: 9 }, maxRotation: 0 }, grid: { display: false } },
+        y: { stacked: true, ticks: { color: '#9ca3af', font: { size: 10 }, callback: v => v + ' MW' }, grid: { color: '#f3f4f6' } },
+      },
+    },
+  });
+}
+
+// ── Monthly P&L chart ──────────────────────────────────────────────────────────
+function renderPLChart(monthly) {
+  if (!monthly?.length) return;
+  const ctx    = document.getElementById('plChart').getContext('2d');
+  const labels = monthly.map(m => m.label);
+
+  const toM = v => +(v / 1e6).toFixed(2);
+
+  charts.pl = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Flat Revenue',    data: monthly.map(m => toM(m.flatRevenue)),   backgroundColor: 'rgba(37,99,235,0.6)', yAxisID: 'y' },
+        { label: 'Renewable Cost',  data: monthly.map(m => -toM(m.renewableCost)),backgroundColor: 'rgba(55,65,81,0.7)',  yAxisID: 'y' },
+        { label: 'Gas Cost',        data: monthly.map(m => -toM(m.gasCost)),      backgroundColor: 'rgba(220,38,38,0.55)',yAxisID: 'y' },
+        { label: 'Spot Cost',       data: monthly.map(m => -toM(m.spotCost)),     backgroundColor: 'rgba(124,58,237,0.5)',yAxisID: 'y' },
+        { label: 'Curtail Revenue', data: monthly.map(m => toM(m.curtailRevenue)),backgroundColor: 'rgba(5,150,105,0.4)', yAxisID: 'y' },
+        {
+          label: 'Net Margin', type: 'line',
+          data: monthly.map(m => toM(m.netMargin)),
+          borderColor: '#059669', backgroundColor: 'rgba(5,150,105,0.1)',
+          borderWidth: 2, pointRadius: 3, fill: false, tension: 0.3, yAxisID: 'y',
+        },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { mode: 'index', callbacks: { label: ctx => `${ctx.dataset.label}: $${ctx.parsed.y.toFixed(2)}M` } },
+      },
+      scales: {
+        x: { stacked: true, ticks: { color: '#9ca3af', font: { size: 10 } }, grid: { display: false } },
+        y: { stacked: true, ticks: { color: '#9ca3af', font: { size: 10 }, callback: v => '$' + v + 'M' }, grid: { color: '#f3f4f6' }, title: { display: true, text: 'A$ millions', color: '#6b7280', font: { size: 11 } } },
+      },
+    },
+  });
+}
+
+// ── Monthly table ──────────────────────────────────────────────────────────────
+function renderTable(monthly) {
+  const tbody = document.getElementById('monthlyTbody');
+  tbody.innerHTML = monthly.map(m => {
+    const covPct = m.coveragePct;
+    let covClass = covPct >= 95 ? 'pill-green' : covPct >= 75 ? 'pill-amber' : 'pill-red';
+    return `<tr>
+      <td><strong>${m.label}</strong></td>
+      <td class="mono right">${fmtMWh(m.targetMWh)}</td>
+      <td class="mono right">${fmtMWh(m.renewableMWh)}</td>
+      <td class="mono right">${fmtMWh(m.gasFiredMWh)}</td>
+      <td class="mono right ${m.spotPurchMWh > 0 ? 'amber' : ''}">${fmtMWh(m.spotPurchMWh)}</td>
+      <td class="mono right">${fmtMWh(m.surplusMWh)}</td>
+      <td class="right"><span class="coverage-pill ${covClass}">${covPct?.toFixed(1) ?? '—'}%</span></td>
+      <td class="mono right">${m.avgSpotPrice != null ? '$' + m.avgSpotPrice.toFixed(0) : '—'}</td>
+      <td class="mono right blue">$${fmtNum(m.flatRevenue)}</td>
+      <td class="mono right">${m.gasCost > 0 ? '-$'+fmtNum(m.gasCost) : '—'}</td>
+      <td class="mono right ${m.spotCost > 0 ? 'red' : ''}">${m.spotCost > 0 ? '-$'+fmtNum(m.spotCost) : '—'}</td>
+      <td class="mono right ${m.netMargin >= 0 ? 'green' : 'red'}">$${fmtNum(m.netMargin)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── CSV download ───────────────────────────────────────────────────────────────
+function downloadCSV() {
+  if (!lastData?.monthly) return;
+  const cols = ['Month','TargetMWh','RenewableMWh','GasFiredMWh','SpotPurchMWh','SurplusMWh',
+    'CoveragePct','AvgSpotPrice','FlatRevenue','GasCost','SpotCost','CurtailRevenue','RenewableCost','NetMargin'];
+  const rows = lastData.monthly.map(m => [
+    m.key, m.targetMWh, m.renewableMWh, m.gasFiredMWh, m.spotPurchMWh, m.surplusMWh,
+    m.coveragePct, m.avgSpotPrice, m.flatRevenue, m.gasCost, m.spotCost, m.curtailRevenue, m.renewableCost, m.netMargin,
+  ].join(','));
+  const csv  = [cols.join(','), ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(blob);
+  a.download = `portfolio_${lastData.config?.year || 'data'}.csv`;
+  a.click();
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function destroyCharts() {
+  Object.values(charts).forEach(c => c?.destroy());
+  charts = {};
+}
+
+function fmtNum(v) {
+  if (v == null) return '—';
+  const abs = Math.abs(v);
+  if (abs >= 1e6) return (v / 1e6).toFixed(1) + 'M';
+  if (abs >= 1e3) return (v / 1e3).toFixed(0) + 'k';
+  return v.toFixed(0);
+}
+
+function fmtMWh(v) {
+  if (v == null || v === 0) return '—';
+  if (v >= 1000) return (v / 1000).toFixed(1) + 'k';
+  return v.toFixed(0);
+}
+
+window.__navRefresh = function () {};
+</script>
+</body>
+</html>
