@@ -386,10 +386,8 @@ function addToBucket(b, v) {
   b.sumCurtailRev    += v.curtailRev;
   b.sumRenewableCost += v.renewableCost;
   b.sumNetMargin     += v.netMargin;
-  if (v.renewable + v.gasFired >= v.renewable + v.shortfall - 0.01) {
-    // covered = renewable + gas >= target (no residual spot purchase)
-    if (v.spotPurchase < 0.01) b.countCovered++;
-  }
+  // Covered = no residual spot purchase needed (renewable + gas filled the gap)
+  if (v.spotPurchase < 0.01) b.countCovered++;
   if (v.spot !== null && v.spot < 0) b.countNegPrice++;
 }
 
@@ -545,8 +543,10 @@ module.exports = async function handler(req, res) {
   if (rawFacilities.length > 8)
     return res.status(400).json({ error: 'Maximum 8 facilities per simulation' });
 
-  const rawMLFs = (req.query.mlfs || '').split(',').map(s => parseFloat(s.trim())).filter(isFinite);
-  const mlfMap  = Object.fromEntries(rawFacilities.map((code, i) => [code, rawMLFs[i] ?? 1.0]));
+  const rawMLFs     = (req.query.mlfs     || '').split(',').map(s => parseFloat(s.trim())).filter(isFinite);
+  const rawFueltechs = (req.query.fueltechs || '').split(',').map(s => s.trim().toLowerCase());
+  const mlfMap      = Object.fromEntries(rawFacilities.map((code, i) => [code, rawMLFs[i] ?? 1.0]));
+  const fueltechMap = Object.fromEntries(rawFacilities.map((code, i) => [code, rawFueltechs[i] || '']));
 
   const targetMW      = Math.max(1,  Math.min(2000, parseFloat(req.query.target_mw      || '100') || 100));
   const gasMW         = Math.max(0,  Math.min(2000, parseFloat(req.query.gas_mw         || '0')   || 0));
@@ -566,7 +566,7 @@ module.exports = async function handler(req, res) {
   const wantCoverageCurve = req.query.coverage_curve === 'true';
   const force             = req.query.force === 'true';
 
-  const facilities = rawFacilities.map(code => ({ code, mlf: Math.max(0.5, Math.min(1.2, mlfMap[code])) }));
+  const facilities = rawFacilities.map(code => ({ code, mlf: Math.max(0.5, Math.min(1.2, mlfMap[code])), fueltech: fueltechMap[code] || '' }));
   const months     = buildMonthList(year);
 
   console.log(`[portfolio] facilities=${rawFacilities.join(',')} target=${targetMW}MW gas=${gasMW}MW@$${gasSRMC} region=${deliveryRegion} year=${year} months=${months.length}`);
