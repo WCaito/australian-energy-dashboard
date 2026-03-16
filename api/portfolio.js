@@ -100,22 +100,51 @@ async function getClient() {
 // ── Timestamp helpers ──────────────────────────────────────────────────────────
 
 /**
- * Convert an AEST-naive datetime string to AEST hour key "YYYY-MM-DDTHH".
- * Mirrors the toEpochMs pattern in bess-nsw.js: if no timezone suffix,
- * treat as AEST (+10:00).
+ * Convert an OE interval value to an AEST hour key "YYYY-MM-DDTHH".
+ *
+ * ROOT CAUSE OF PREVIOUS BUG:
+ * The OE SDK returns row.interval as a JavaScript Date OBJECT, not a string.
+ * Confirmed from Vercel logs: JSON.stringify shows "2025-11-22T00:00:00.000Z"
+ * but that is how JSON.stringify serialises a Date — the actual value in memory
+ * is a Date object. Calling String(dateObj) in Node.js gives a locale string like
+ * "Sat Nov 22 2025 10:00:00 GMT+1000 (AEDT)" which fails to re-parse → isNaN
+ * → null returned for EVERY row → 0 hourly buckets despite 2016 rows fetched.
+ *
+ * Fix: detect Date objects explicitly and call .getTime() directly.
+ * For string inputs (future-proofing), parse via new Date() after normalisation.
+ *
+ * All keys are in the form "YYYY-MM-DDTHH" where HH is the AEST hour (UTC+10).
+ * This aligns with settlementToHourKey which produces the same format from
+ * AEMO SETTLEMENTDATE strings (AEST-naive, e.g. "2025/11/22 10:30:00").
  */
 function oeToHourKey(ts) {
   if (!ts) return null;
   try {
-    let s = String(ts).replace(' ', 'T').replace(/\.\d+/, '');
-    // If no timezone info, treat as AEST (UTC+10)
-    if (!s.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(s)) s += '+10:00';
-    const d = new Date(s);
-    if (isNaN(d.getTime())) return null;
-    // Convert UTC epoch → AEST by adding 10h, then take the hour portion
-    const aest = new Date(d.getTime() + 10 * 3600000);
+    let utcMs;
+
+    if (ts instanceof Date) {
+      // OE SDK returns Date objects — use getTime() directly (UTC milliseconds)
+      utcMs = ts.getTime();
+    } else {
+      // String fallback: normalise and parse
+      let s = String(ts).replace(' ', 'T').replace(/\.\d+/, '');
+      // No timezone info → treat as AEST (UTC+10)
+      if (!s.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(s)) s += '+10:00';
+      const d = new Date(s);
+      if (isNaN(d.getTime())) return null;
+      utcMs = d.getTime();
+    }
+
+    if (isNaN(utcMs)) return null;
+
+    // Shift UTC→AEST by adding 10h, then slice the ISO string to "YYYY-MM-DDTHH"
+    // e.g. UTC 00:00 (= AEST 10:00) → add 10h → UTC 10:00 → "...T10" ✓
+    const aest = new Date(utcMs + 10 * 3600000);
     return aest.toISOString().slice(0, 13);
-  } catch { return null; }
+  } catch (e) {
+    console.error('[portfolio] oeToHourKey error:', e.message, 'input:', typeof ts, String(ts).slice(0, 50));
+    return null;
+  }
 }
 
 /**
@@ -206,7 +235,7 @@ function build7dayChunks(year, month) {
     const dayStr  = String(day).padStart(2, '0');
     const endStr  = String(endDay).padStart(2, '0');
     chunks.push({
-      cacheKey:  `aed:portfolio:gen:v3:${monthStr}-${dayStr}`,
+      cacheKey:  `aed:portfolio:gen:v4:${monthStr}-${dayStr}`,
       dateStart: `${monthStr}-${dayStr}T00:00:00`,
       dateEnd:   `${monthStr}-${endStr}T23:59:59`,
     });
