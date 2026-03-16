@@ -394,6 +394,10 @@ function runSimulation(hourKeys, genData, priceData, config) {
   let   annual  = newBucket();
   let   annualHoursTotal = 0;
 
+  // Per-facility MWh totals — accumulated each hour for mix bar breakdown
+  const facilityMWh = {};
+  for (const f of facilities) facilityMWh[f.code] = 0;
+
   // Raw per-hour renewable output (for coverage curve and worst-week search)
   const hourlyRenewable = []; // [{hourKey, renewable, spotPrice, gasFired, spotPurchase, facilityOutputs}]
 
@@ -409,6 +413,7 @@ function runSimulation(hourKeys, genData, priceData, config) {
       const adj = raw * f.mlf;
       outputs[f.code] = adj;
       renewable += adj;
+      facilityMWh[f.code] += adj; // accumulate per-facility MWh (1h interval = MW = MWh)
     }
 
     const spot     = priceData[hourKey] ?? null;
@@ -459,7 +464,7 @@ function runSimulation(hourKeys, genData, priceData, config) {
   // ── Worst 7-day window ───────────────────────────────────────────────────────
   const worstWeek = findWorstWeek(hourlyRenewable, targetMW);
 
-  return { monthly: monthlyArr, annual: annualSummary, worstWeek, hourlyRenewable };
+  return { monthly: monthlyArr, annual: annualSummary, worstWeek, hourlyRenewable, facilityMWh };
 }
 
 function newBucket() {
@@ -737,7 +742,11 @@ module.exports = async function handler(req, res) {
   // ── Run dispatch simulation ────────────────────────────────────────────────
 
   const config = { facilities, targetMW, gasMW, gasSRMC, flatPrice, renewableLCOE };
-  const { monthly, annual, worstWeek, hourlyRenewable } = runSimulation(sortedHours, genData, priceData, config);
+  const { monthly, annual, worstWeek, hourlyRenewable, facilityMWh } = runSimulation(sortedHours, genData, priceData, config);
+  // Attach facilityMWh to annual so frontend can split wind/solar exactly
+  annual.facilityMWh = Object.fromEntries(
+    Object.entries(facilityMWh).map(([code, mwh]) => [code, +mwh.toFixed(0)])
+  );
 
   // ── Coverage curve (optional, computed from pre-built renewable array) ──────
   const coverageCurve = wantCoverageCurve ? buildCoverageCurve(hourlyRenewable, targetMW) : null;
