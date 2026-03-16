@@ -32,6 +32,12 @@
     },
     "api/scenario.js": {
       "maxDuration": 60
+    },
+    "api/portfolio.js": {
+      "maxDuration": 60
+    },
+    "api/facilities-list.js": {
+      "maxDuration": 30
     }
   },
   "crons": [
