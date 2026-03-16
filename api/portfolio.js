@@ -182,31 +182,48 @@ async function fetchFacilityMonth(client, facilityCode, year, month, force) {
     if (cached && typeof cached === 'object') return cached;
   }
 
-  const lastDay = new Date(year, month, 0).getDate();
-  const dateStart = `${monthStr}-01T00:00:00`;
-  const dateEnd   = `${monthStr}-${String(lastDay).padStart(2, '0')}T23:59:59`;
+  const lastDay   = new Date(year, month, 0).getDate();
+  // Date-only format required by OE API (YYYY-MM-DD, timezone-naive local time)
+  const dateStart = `${monthStr}-01`;
+  const dateEnd   = `${monthStr}-${String(lastDay).padStart(2, '0')}`;
 
   try {
-    const { datatable } = await client.getFacilityData('NEM', facilityCode, ['power'], {
-      interval: '1h', dateStart, dateEnd,
+    // CRITICAL: interval must be 'hour' not '1h'.
+    // '1h' is unrecognised, falls back to '5m' default, which then fails with a
+    // 400 "date range too large" error for any month-length request (>8 days).
+    // That error was being silently caught and returning {} for every facility-month,
+    // causing zero generation to be attributed in the simulation.
+    const resp = await client.getFacilityData('NEM', facilityCode, ['power'], {
+      interval: 'hour', dateStart, dateEnd,
     });
 
+    const rows = resp?.datatable?.rows || [];
+    console.log(`[portfolio] ${facilityCode} ${monthStr}: ${rows.length} hourly rows from OE`);
+    if (rows.length > 0) {
+      const s = rows[0];
+      console.log(`[portfolio] ${facilityCode} sample keys: ${Object.keys(s).join(', ')}`);
+      console.log(`[portfolio] ${facilityCode} sample: ${JSON.stringify(s).slice(0, 200)}`);
+    }
+
     const hourly = {};
-    for (const row of (datatable?.rows || [])) {
+    for (const row of rows) {
       const ts = row.interval || row.date || row.timestamp;
       const key = oeToHourKey(ts);
       if (!key) continue;
       const p = typeof row.power === 'number' ? Math.max(0, row.power) : 0;
       hourly[key] = (hourly[key] || 0) + p;
     }
+    console.log(`[portfolio] ${facilityCode} ${monthStr}: ${Object.keys(hourly).length} unique hour keys`);
 
     const ttl = isPastMonth(year, month) ? 7 * 86400 : 3600;
     await kvSet(cacheKey, hourly, ttl);
     return hourly;
 
   } catch (err) {
-    if (/no data found/i.test(err.message)) {
-      console.warn(`[portfolio] No hourly data for ${facilityCode} ${monthStr}`);
+    console.error(`[portfolio] fetchFacilityMonth ${facilityCode} ${monthStr}: ${err.message}`);
+    if (/no data found/i.test(err.message)) return {};
+    if (/date range|too large|invalid interval/i.test(err.message)) {
+      console.error(`[portfolio] OE API constraint — check interval/date params`);
       return {};
     }
     throw err;
