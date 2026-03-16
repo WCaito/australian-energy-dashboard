@@ -542,12 +542,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // ── Facility list ─────────────────────────────────────────────────────────────
 async function loadFacilityList() {
+  const hint = document.getElementById('noFacilitiesHint');
+  hint.textContent = 'Loading facilities…';
   try {
     const res  = await fetch('/api/facilities-list');
     const data = await res.json();
-    if (data.facilities) allFacilities = data.facilities;
+    if (data.facilities && data.facilities.length > 0) {
+      allFacilities = data.facilities;
+      hint.textContent = 'Search and add facilities above';
+    } else {
+      hint.innerHTML = 'No facilities returned. <a href="#" onclick="loadFacilityList();return false;">Retry</a>';
+    }
   } catch (e) {
     console.warn('Could not load facilities list:', e.message);
+    hint.innerHTML = 'Failed to load facilities. <a href="#" onclick="loadFacilityList();return false;">Retry</a>';
   }
 }
 
@@ -990,7 +998,47 @@ function fmtMWh(v) {
   return v.toFixed(0);
 }
 
-window.__navRefresh = function () {};
+// Portfolio-specific refresh: force re-fetch of generation+price data then re-run simulation
+window.__navRefresh = async function () {
+  const btn   = document.getElementById('gcbRefreshBtn');
+  const btn2  = document.getElementById('refreshBtn');
+  const badge = document.getElementById('cacheStatusBadge');
+  if (btn)  { btn.disabled  = true; btn.innerHTML  = '<span class="gcb-spinner"></span>Refreshing…'; }
+  if (btn2) { btn2.disabled = true; btn2.textContent = 'Refreshing…'; }
+  if (badge){ badge.textContent = 'Refreshing facilities list…'; badge.className = 'cache-status-badge visible'; }
+  try {
+    // Re-fetch the facilities list with force
+    await fetch('/api/facilities-list?force=true');
+    await loadFacilityList();
+    // If a simulation has been run, re-run it with force to bust generation/price cache
+    if (lastData && selectedFacilities.length > 0) {
+      if (badge) badge.textContent = 'Re-running simulation with fresh data…';
+      const codes   = selectedFacilities.map(f => f.code).join(',');
+      const mlfs    = selectedFacilities.map(f => f.mlf).join(',');
+      const params  = new URLSearchParams({
+        facilities: codes, mlfs,
+        target_mw: document.getElementById('cfgTarget').value,
+        delivery_region: document.getElementById('cfgRegion').value,
+        year: document.getElementById('cfgYear').value,
+        flat_price: document.getElementById('cfgFlatPrice').value,
+        gas_mw: document.getElementById('cfgGasMW').value,
+        gas_srmc: document.getElementById('cfgGasSRMC').value,
+        renewable_lcoe: document.getElementById('cfgLCOE').value,
+        coverage_curve: 'true', force: 'true',
+      });
+      const res  = await fetch('/api/portfolio?' + params);
+      const data = await res.json();
+      if (data.success) { lastData = data; renderResults(data); showState('results'); }
+    }
+    if (badge){ badge.textContent = '✓ Refreshed'; badge.className = 'cache-status-badge visible fresh'; }
+    setTimeout(() => { if (badge) badge.className = 'cache-status-badge'; }, 3000);
+  } catch (e) {
+    if (badge){ badge.textContent = '⚠ Refresh failed: ' + e.message; badge.className = 'cache-status-badge visible missing'; }
+  } finally {
+    if (btn)  { btn.disabled  = false; btn.textContent  = 'Refresh'; }
+    if (btn2) { btn2.disabled = false; btn2.textContent = 'Refresh Data'; }
+  }
+};
 </script>
 </body>
 </html>
