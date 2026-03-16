@@ -778,14 +778,19 @@ function renderResults(data) {
   }
 
   // ── Energy mix bar ─────────────────────────────────────────────────────────
-  // Split renewable into wind vs solar using installed capacity as a proxy.
-  // data.facilities now includes fueltech (returned from API).
-  const totalMWh    = (annual.renewableMWh || 0) + (annual.gasFiredMWh || 0) + (annual.spotPurchMWh || 0) + (annual.surplusMWh || 0);
-  const windCap     = data.facilities.filter(f => (f.fueltech||'').includes('wind')).reduce((s,f) => s + (f.capacity||0), 0);
-  const solarCap    = data.facilities.filter(f => (f.fueltech||'').includes('solar')).reduce((s,f) => s + (f.capacity||0), 0);
-  const totalRenCap = windCap + solarCap;
-  const windMWh     = totalRenCap > 0 ? (annual.renewableMWh || 0) * (windCap / totalRenCap) : (annual.renewableMWh || 0);
-  const solMWh      = (annual.renewableMWh || 0) - windMWh;
+  // Use exact per-facility MWh from annual.facilityMWh (computed in simulation).
+  // This is accurate regardless of whether facility.capacity is null.
+  const totalMWh = (annual.renewableMWh || 0) + (annual.gasFiredMWh || 0) + (annual.spotPurchMWh || 0) + (annual.surplusMWh || 0);
+  const facilityMWh = annual.facilityMWh || {};
+  const windMWh  = data.facilities
+    .filter(f => (f.fueltech||'').includes('wind'))
+    .reduce((s, f) => s + (facilityMWh[f.code] || 0), 0);
+  const solMWh   = data.facilities
+    .filter(f => (f.fueltech||'').includes('solar'))
+    .reduce((s, f) => s + (facilityMWh[f.code] || 0), 0);
+  const gasMWh   = data.facilities
+    .filter(f => (f.fueltech||'').includes('gas'))
+    .reduce((s, f) => s + (facilityMWh[f.code] || 0), 0);
 
   function pct(v) { return totalMWh > 0 ? (v / totalMWh * 100).toFixed(1) + '%' : '0%'; }
   document.getElementById('mixWind').style.width  = pct(windMWh);
@@ -795,11 +800,11 @@ function renderResults(data) {
   document.getElementById('mixSurp').style.width  = pct(annual.surplusMWh || 0);
 
   const fmtMWhShort = v => v >= 1000 ? (v/1000).toFixed(1)+'k MWh' : Math.round(v)+' MWh';
-  document.getElementById('mixWindLbl').textContent  = `Wind — ${pct(windMWh)}`;
-  document.getElementById('mixSolarLbl').textContent = `Solar — ${pct(Math.max(0, solMWh))}`;
-  document.getElementById('mixGasLbl').textContent   = `Gas — ${pct(annual.gasFiredMWh || 0)}`;
-  document.getElementById('mixSpotLbl').textContent  = `Spot — ${pct(annual.spotPurchMWh || 0)}`;
-  document.getElementById('mixSurpLbl').textContent  = `Surplus — ${pct(annual.surplusMWh || 0)}`;
+  document.getElementById('mixWindLbl').textContent  = `Wind — ${pct(windMWh)} (${fmtMWhShort(windMWh)})`;
+  document.getElementById('mixSolarLbl').textContent = `Solar — ${pct(solMWh)} (${fmtMWhShort(solMWh)})`;
+  document.getElementById('mixGasLbl').textContent   = `Gas — ${pct(annual.gasFiredMWh || 0)} (${fmtMWhShort(annual.gasFiredMWh || 0)})`;
+  document.getElementById('mixSpotLbl').textContent  = `Spot — ${pct(annual.spotPurchMWh || 0)} (${fmtMWhShort(annual.spotPurchMWh || 0)})`;
+  document.getElementById('mixSurpLbl').textContent  = `Surplus — ${pct(annual.surplusMWh || 0)} (${fmtMWhShort(annual.surplusMWh || 0)})`;
 
   // ── Charts ─────────────────────────────────────────────────────────────────
   destroyCharts();
