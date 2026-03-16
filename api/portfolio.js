@@ -100,18 +100,21 @@ async function getClient() {
 // ── Timestamp helpers ──────────────────────────────────────────────────────────
 
 /**
- * Convert an OE interval timestamp to an AEST hour key "YYYY-MM-DDTHH".
- * OE returns naive AEST strings or +10:00 suffixed strings.
+ * Convert an AEST-naive datetime string to AEST hour key "YYYY-MM-DDTHH".
+ * Mirrors the toEpochMs pattern in bess-nsw.js: if no timezone suffix,
+ * treat as AEST (+10:00).
  */
 function oeToHourKey(ts) {
   if (!ts) return null;
-  let s = String(ts).replace(' ', 'T').replace(/\.\d+/, '');
-  if (!s.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(s)) s += '+10:00';
   try {
+    let s = String(ts).replace(' ', 'T').replace(/\.\d+/, '');
+    // If no timezone info, treat as AEST (UTC+10)
+    if (!s.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(s)) s += '+10:00';
     const d = new Date(s);
     if (isNaN(d.getTime())) return null;
-    // Shift to AEST (+10) and format
-    return new Date(d.getTime() + 10 * 3600000).toISOString().slice(0, 13);
+    // Convert UTC epoch → AEST by adding 10h, then take the hour portion
+    const aest = new Date(d.getTime() + 10 * 3600000);
+    return aest.toISOString().slice(0, 13);
   } catch { return null; }
 }
 
@@ -126,7 +129,6 @@ function settlementToHourKey(raw) {
     const [dateStr, timeStr] = s.split('T');
     const [h, m] = timeStr.split(':').map(Number);
     if (m === 30) return `${dateStr}T${String(h).padStart(2, '0')}`;
-    // m === 0: interval ends at :00 → interval started at :30 of previous hour
     if (h === 0) {
       const [yr, mo, dy] = dateStr.split('-').map(Number);
       const prev = new Date(Date.UTC(yr, mo - 1, dy - 1));
@@ -134,6 +136,15 @@ function settlementToHourKey(raw) {
     }
     return `${dateStr}T${String(h - 1).padStart(2, '0')}`;
   } catch { return null; }
+}
+
+/**
+ * Format a UTC Date object as an AEST-naive datetime string "YYYY-MM-DDTHH:MM:SS".
+ * This matches the toLocalNaive pattern used in bess-nsw.js and facility-data.js.
+ */
+function toAESTNaive(date) {
+  const aest = new Date(date.getTime() + 10 * 3600 * 1000);
+  return aest.toISOString().slice(0, 19);
 }
 
 function isPastMonth(year, month) {
@@ -149,7 +160,6 @@ function buildMonthList(yearParam) {
   const curY = now.getUTCFullYear();
   const curM = now.getUTCMonth() + 1;
 
-  // Last complete month
   let lastY = curY, lastM = curM - 1;
   if (lastM === 0) { lastM = 12; lastY--; }
 
@@ -171,60 +181,108 @@ function buildMonthList(yearParam) {
   return months;
 }
 
-// ── OE facility data fetch (1-hour intervals, cached per facility-month) ────────
+// ── OE facility data fetch ─────────────────────────────────────────────────────
+//
+// Uses interval: '5m' — the only interval confirmed working with getFacilityData
+// in this codebase (bess-nsw.js, facility-data.js both use 5m exclusively).
+//
+// A calendar month (28-31 days) exceeds the 8-day limit for 5m data.
+// Solution: split each month into 7-day chunks. Each chunk is cached separately
+// in Redis. First cold run fetches all chunks in parallel; subsequent runs are
+// instant from cache.
+//
+// Chunks use AEST-naive datetime strings "YYYY-MM-DDTHH:MM:SS" (no timezone),
+// matching the toLocalNaive format used in bess-nsw.js and facility-data.js.
+//
+// 5-min readings are averaged to hourly (12 readings per hour → mean MW).
+
+function build7dayChunks(year, month) {
+  const monthStr    = `${year}-${String(month).padStart(2, '0')}`;
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const chunks      = [];
+
+  for (let day = 1; day <= daysInMonth; day += 7) {
+    const endDay  = Math.min(day + 6, daysInMonth);
+    const dayStr  = String(day).padStart(2, '0');
+    const endStr  = String(endDay).padStart(2, '0');
+    chunks.push({
+      cacheKey:  `aed:portfolio:gen:v3:${monthStr}-${dayStr}`,
+      dateStart: `${monthStr}-${dayStr}T00:00:00`,
+      dateEnd:   `${monthStr}-${endStr}T23:59:59`,
+    });
+  }
+  return chunks;
+}
+
+function aggregate5mToHourly(rows) {
+  // Bucket 5-min power readings by AEST hour key, then average
+  const buckets = {};
+  for (const row of rows) {
+    const ts  = row.interval || row.date || row.timestamp;
+    const key = oeToHourKey(ts);
+    if (!key) continue;
+    const p = typeof row.power === 'number' ? Math.max(0, row.power) : 0;
+    if (!buckets[key]) buckets[key] = { sum: 0, count: 0 };
+    buckets[key].sum   += p;
+    buckets[key].count += 1;
+  }
+  const hourly = {};
+  for (const [key, b] of Object.entries(buckets)) {
+    hourly[key] = b.count > 0 ? +(b.sum / b.count).toFixed(2) : 0;
+  }
+  return hourly;
+}
 
 async function fetchFacilityMonth(client, facilityCode, year, month, force) {
+  const chunks = build7dayChunks(year, month);
   const monthStr = `${year}-${String(month).padStart(2, '0')}`;
-  const cacheKey = `aed:portfolio:gen:v2:${facilityCode}:${monthStr}`;
 
-  if (!force) {
-    const cached = await kvGet(cacheKey);
-    if (cached && typeof cached === 'object' && Object.keys(cached).length > 0) return cached;
-  }
-
-  const lastDay   = new Date(year, month, 0).getDate();
-  // Date-only format required by OE API (YYYY-MM-DD, timezone-naive local time)
-  const dateStart = `${monthStr}-01`;
-  const dateEnd   = `${monthStr}-${String(lastDay).padStart(2, '0')}`;
-
-  try {
-    // interval: '1h' is correct for getFacilityData (valid options: 5m, 1h, 1d, 7d, 1M).
-    // Note: getNetworkData uses 'hour' — different convention, same duration.
-    const resp = await client.getFacilityData('NEM', facilityCode, ['power'], {
-      interval: '1h', dateStart, dateEnd,
-    });
-
-    const rows = resp?.datatable?.rows || [];
-    console.log(`[portfolio] ${facilityCode} ${monthStr}: ${rows.length} hourly rows from OE`);
-    if (rows.length > 0) {
-      const s = rows[0];
-      console.log(`[portfolio] ${facilityCode} sample keys: ${Object.keys(s).join(', ')}`);
-      console.log(`[portfolio] ${facilityCode} sample: ${JSON.stringify(s).slice(0, 200)}`);
+  const chunkResults = await Promise.all(chunks.map(async chunk => {
+    // Check per-chunk Redis cache
+    if (!force) {
+      const cached = await kvGet(chunk.cacheKey + ':' + facilityCode);
+      if (cached && typeof cached === 'object' && Object.keys(cached).length > 0) {
+        return cached;
+      }
     }
 
-    const hourly = {};
-    for (const row of rows) {
-      const ts = row.interval || row.date || row.timestamp;
-      const key = oeToHourKey(ts);
-      if (!key) continue;
-      const p = typeof row.power === 'number' ? Math.max(0, row.power) : 0;
-      hourly[key] = (hourly[key] || 0) + p;
-    }
-    console.log(`[portfolio] ${facilityCode} ${monthStr}: ${Object.keys(hourly).length} unique hour keys`);
+    try {
+      // Use interval '5m' — confirmed working pattern from bess-nsw.js and facility-data.js.
+      // Date format "YYYY-MM-DDTHH:MM:SS" (AEST naive, no timezone) matches toLocalNaive().
+      const { datatable } = await client.getFacilityData(
+        'NEM', facilityCode, ['power'],
+        { interval: '5m', dateStart: chunk.dateStart, dateEnd: chunk.dateEnd }
+      );
 
-    const ttl = isPastMonth(year, month) ? 7 * 86400 : 3600;
-    await kvSet(cacheKey, hourly, ttl);
-    return hourly;
+      const rows = datatable?.rows || [];
+      console.log(`[portfolio] ${facilityCode} ${chunk.dateStart.slice(0,10)}: ${rows.length} rows`);
 
-  } catch (err) {
-    console.error(`[portfolio] fetchFacilityMonth ${facilityCode} ${monthStr}: ${err.message}`);
-    if (/no data found/i.test(err.message)) return {};
-    if (/date range|too large|invalid interval/i.test(err.message)) {
-      console.error(`[portfolio] OE API constraint — check interval/date params`);
+      if (rows.length > 0 && !rows[0].__logged) {
+        console.log(`[portfolio] sample row keys: ${Object.keys(rows[0]).join(', ')}`);
+        console.log(`[portfolio] sample row: ${JSON.stringify(rows[0]).slice(0, 200)}`);
+      }
+
+      const hourly = aggregate5mToHourly(rows);
+      console.log(`[portfolio] ${facilityCode} ${chunk.dateStart.slice(0,10)}: ${Object.keys(hourly).length} hourly buckets`);
+
+      // Only cache if we got real data (never cache empty results)
+      if (Object.keys(hourly).length > 0) {
+        const ttl = isPastMonth(year, month) ? 7 * 86400 : 3600;
+        await kvSet(chunk.cacheKey + ':' + facilityCode, hourly, ttl);
+      }
+      return hourly;
+
+    } catch (err) {
+      console.error(`[portfolio] ${facilityCode} ${chunk.dateStart}: ${err.message}`);
       return {};
     }
-    throw err;
-  }
+  }));
+
+  // Merge all chunk hourly maps into one for this month
+  const merged = {};
+  for (const h of chunkResults) Object.assign(merged, h);
+  console.log(`[portfolio] ${facilityCode} ${monthStr}: ${Object.keys(merged).length} total hour keys`);
+  return merged;
 }
 
 // ── AEMO CSV price fetch (30-min, averaged to hourly, cached per region-month) ──
@@ -592,8 +650,9 @@ module.exports = async function handler(req, res) {
     return res.status(500).json({ error: 'OE client init failed', message: err.message });
   }
 
-  // One Promise per (facility × month) + one per month for prices
-  const genFetches = facilities.flatMap(f =>
+  // Each month is split into ~5 seven-day chunks internally (see fetchFacilityMonth).
+  // Run facility×month tasks in parallel. Price fetches run concurrently alongside.
+  const genTasks = facilities.flatMap(f =>
     months.map(({ year: y, month: m }) =>
       fetchFacilityMonth(client, f.code, y, m, force)
         .then(data => ({ code: f.code, year: y, month: m, data }))
@@ -601,15 +660,15 @@ module.exports = async function handler(req, res) {
     )
   );
 
-  const priceFetches = months.map(({ year: y, month: m }) =>
+  const priceTasks = months.map(({ year: y, month: m }) =>
     fetchPriceMonth(deliveryRegion, y, m, force)
       .then(data => ({ year: y, month: m, data }))
       .catch(err => { console.error(`[portfolio] price fetch ${deliveryRegion} ${y}-${m}:`, err.message); return { year: y, month: m, data: {} }; })
   );
 
   const [genResults, priceResults] = await Promise.all([
-    Promise.all(genFetches),
-    Promise.all(priceFetches),
+    Promise.all(genTasks),
+    Promise.all(priceTasks),
   ]);
 
   // ── Assemble data maps ─────────────────────────────────────────────────────
