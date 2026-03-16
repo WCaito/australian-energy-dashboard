@@ -32,7 +32,6 @@ function getBaseUrl(req) {
 async function clearAllCaches() {
   const keys = [
     CACHE_KEYS.LIVE_PRICES,
-    CACHE_KEYS.NEWS,
     CACHE_KEYS.FACILITY_DATA,
     CACHE_KEYS.BESS_NSW,
     CACHE_KEYS.HISTORICAL_ALL,
@@ -82,7 +81,6 @@ module.exports = async function handler(req, res) {
   // ── 2. Re-fetch fast endpoints in parallel (respond after these complete) ─
   const fastResults = await Promise.all([
     refetchEndpoint(base, '/api/live-prices?force=true', 'live-prices'),
-    refetchEndpoint(base, '/api/news?force=true', 'news'),
   ]);
 
   // ── 3. Fire-and-forget slow endpoints ────────────────────────────────────
@@ -104,7 +102,7 @@ module.exports = async function handler(req, res) {
     success: true,
     startedAt,
     completedAt: new Date().toISOString(),
-    message: 'Cache cleared. Live prices & news refreshed immediately. Facility data, BESS, and historical data are refreshing in the background (15–30 s).',
+    message: 'Cache cleared. Live prices refreshed immediately. Facility data, BESS, and historical data are refreshing in the background (15–30 s).',
     immediate: fastResults,
     background: ['facility-data', 'bess-nsw', ...HISTORICAL_REGIONS.map(r => `historical-${r}`)],
   });
