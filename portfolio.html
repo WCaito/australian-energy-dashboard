@@ -676,13 +676,15 @@ function ftLabel(ft) {
   if (f === 'gas_ccgt')      return 'Gas CCGT';
   return ft;
 }
-function isSolar(code) {
-  const f = selectedFacilities.find(x => x.code === code);
-  return f && f.fueltech?.toLowerCase().includes('solar');
+function isSolar(code, facilitiesArr) {
+  const arr = facilitiesArr || selectedFacilities;
+  const f = arr.find(x => x.code === code);
+  return !!(f && (f.fueltech || '').toLowerCase().includes('solar'));
 }
-function isWind(code) {
-  const f = selectedFacilities.find(x => x.code === code);
-  return f && f.fueltech?.toLowerCase().includes('wind');
+function isWind(code, facilitiesArr) {
+  const arr = facilitiesArr || selectedFacilities;
+  const f = arr.find(x => x.code === code);
+  return !!(f && (f.fueltech || '').toLowerCase().includes('wind'));
 }
 
 // ── Run simulation ────────────────────────────────────────────────────────────
@@ -699,8 +701,10 @@ async function runSimulation() {
   const srmc    = document.getElementById('cfgGasSRMC').value;
   const lcoe    = document.getElementById('cfgLCOE').value;
 
+  const fueltechs = selectedFacilities.map(f => f.fueltech || '').join(',');
+
   const params = new URLSearchParams({
-    facilities: codes, mlfs,
+    facilities: codes, mlfs, fueltechs,
     target_mw: target, delivery_region: region, year,
     flat_price: flat, gas_mw: gasMW, gas_srmc: srmc, renewable_lcoe: lcoe,
     coverage_curve: 'true',
@@ -774,9 +778,14 @@ function renderResults(data) {
   }
 
   // ── Energy mix bar ─────────────────────────────────────────────────────────
-  const totalMWh = (annual.renewableMWh || 0) + (annual.gasFiredMWh || 0) + (annual.spotPurchMWh || 0) + (annual.surplusMWh || 0);
-  const windMWh  = data.facilities.filter(f => isWind(f.code)).reduce((s, f) => s + (annual.renewableMWh || 0) / data.facilities.length, 0);
-  const solMWh   = annual.renewableMWh - windMWh;
+  // Split renewable into wind vs solar using installed capacity as a proxy.
+  // data.facilities now includes fueltech (returned from API).
+  const totalMWh    = (annual.renewableMWh || 0) + (annual.gasFiredMWh || 0) + (annual.spotPurchMWh || 0) + (annual.surplusMWh || 0);
+  const windCap     = data.facilities.filter(f => (f.fueltech||'').includes('wind')).reduce((s,f) => s + (f.capacity||0), 0);
+  const solarCap    = data.facilities.filter(f => (f.fueltech||'').includes('solar')).reduce((s,f) => s + (f.capacity||0), 0);
+  const totalRenCap = windCap + solarCap;
+  const windMWh     = totalRenCap > 0 ? (annual.renewableMWh || 0) * (windCap / totalRenCap) : (annual.renewableMWh || 0);
+  const solMWh      = (annual.renewableMWh || 0) - windMWh;
 
   function pct(v) { return totalMWh > 0 ? (v / totalMWh * 100).toFixed(1) + '%' : '0%'; }
   document.getElementById('mixWind').style.width  = pct(windMWh);
@@ -785,11 +794,12 @@ function renderResults(data) {
   document.getElementById('mixSpot').style.width  = pct(annual.spotPurchMWh || 0);
   document.getElementById('mixSurp').style.width  = pct(annual.surplusMWh || 0);
 
-  document.getElementById('mixWindLbl').textContent  = `Wind ${pct(windMWh)} MWh`;
-  document.getElementById('mixSolarLbl').textContent = `Solar ${pct(Math.max(0, solMWh))} MWh`;
-  document.getElementById('mixGasLbl').textContent   = `Gas ${pct(annual.gasFiredMWh || 0)} MWh`;
-  document.getElementById('mixSpotLbl').textContent  = `Spot ${pct(annual.spotPurchMWh || 0)} MWh`;
-  document.getElementById('mixSurpLbl').textContent  = `Surplus ${pct(annual.surplusMWh || 0)} MWh`;
+  const fmtMWhShort = v => v >= 1000 ? (v/1000).toFixed(1)+'k MWh' : Math.round(v)+' MWh';
+  document.getElementById('mixWindLbl').textContent  = `Wind — ${pct(windMWh)}`;
+  document.getElementById('mixSolarLbl').textContent = `Solar — ${pct(Math.max(0, solMWh))}`;
+  document.getElementById('mixGasLbl').textContent   = `Gas — ${pct(annual.gasFiredMWh || 0)}`;
+  document.getElementById('mixSpotLbl').textContent  = `Spot — ${pct(annual.spotPurchMWh || 0)}`;
+  document.getElementById('mixSurpLbl').textContent  = `Surplus — ${pct(annual.surplusMWh || 0)}`;
 
   // ── Charts ─────────────────────────────────────────────────────────────────
   destroyCharts();
@@ -814,15 +824,31 @@ function renderCoverageChart(curve, currentGasMW, targetMW) {
     type: 'line',
     data: {
       labels,
-      datasets: [{
-        label: 'Coverage %',
-        data: values,
-        borderColor: '#2563eb',
-        backgroundColor: 'rgba(37,99,235,0.08)',
-        fill: true, tension: 0.3,
-        pointRadius: values.map((_, i) => i === markerIdx ? 5 : 0),
-        pointBackgroundColor: '#2563eb',
-      }],
+      datasets: [
+        {
+          label: 'Coverage %',
+          data: values,
+          borderColor: '#2563eb',
+          backgroundColor: 'rgba(37,99,235,0.08)',
+          fill: true, tension: 0.3,
+          pointRadius: values.map((_, i) => i === markerIdx ? 5 : 0),
+          pointBackgroundColor: '#2563eb',
+        },
+        {
+          label: '95% target',
+          data: labels.map(() => 95),
+          borderColor: '#059669', borderWidth: 1.5,
+          borderDash: [4, 3], pointRadius: 0,
+          backgroundColor: 'transparent', fill: false,
+        },
+        {
+          label: '99% target',
+          data: labels.map(() => 99),
+          borderColor: '#d97706', borderWidth: 1.5,
+          borderDash: [4, 3], pointRadius: 0,
+          backgroundColor: 'transparent', fill: false,
+        },
+      ],
     },
     options: {
       responsive: true, maintainAspectRatio: false,
@@ -834,12 +860,7 @@ function renderCoverageChart(curve, currentGasMW, targetMW) {
             label: ctx => `Coverage: ${ctx.parsed.y.toFixed(1)}%`,
           },
         },
-        annotation: {
-          annotations: {
-            line95: { type: 'line', yMin: 95, yMax: 95, borderColor: '#059669', borderWidth: 1, borderDash: [4,3], label: { content: '95%', display: true, position: 'start', backgroundColor: '#059669', color: '#fff', font: { size: 10 } } },
-            line99: { type: 'line', yMin: 99, yMax: 99, borderColor: '#d97706', borderWidth: 1, borderDash: [4,3], label: { content: '99%', display: true, position: 'start', backgroundColor: '#d97706', color: '#fff', font: { size: 10 } } },
-          },
-        },
+        // annotation plugin not loaded — 95%/99% lines shown via dataset instead
       },
       scales: {
         x: { ticks: { maxTicksLimit: 8, color: '#9ca3af', font: { size: 10 } }, grid: { color: '#f3f4f6' }, title: { display: true, text: 'Gas firming capacity (MW)', color: '#6b7280', font: { size: 11 } } },
@@ -859,10 +880,10 @@ function renderWorstWeekChart(worstWeek, facilities) {
 
   // Sum facility outputs into wind / solar groups
   const windOutputs  = hours.map(h => {
-    return facilities.filter(f => isWind(f.code)).reduce((s, f) => s + (h.facilityOutputs?.[f.code] || 0), 0);
+    return facilities.filter(f => isWind(f.code, facilities)).reduce((s, f) => s + (h.facilityOutputs?.[f.code] || 0), 0);
   });
   const solarOutputs = hours.map(h => {
-    return facilities.filter(f => isSolar(f.code)).reduce((s, f) => s + (h.facilityOutputs?.[f.code] || 0), 0);
+    return facilities.filter(f => isSolar(f.code, facilities)).reduce((s, f) => s + (h.facilityOutputs?.[f.code] || 0), 0);
   });
   const gasArr  = hours.map(h => h.gasFired);
   const spotArr = hours.map(h => h.spotPurch);
@@ -1016,7 +1037,7 @@ window.__navRefresh = async function () {
       const codes   = selectedFacilities.map(f => f.code).join(',');
       const mlfs    = selectedFacilities.map(f => f.mlf).join(',');
       const params  = new URLSearchParams({
-        facilities: codes, mlfs,
+        facilities: codes, mlfs, fueltechs: selectedFacilities.map(f => f.fueltech || '').join(','),
         target_mw: document.getElementById('cfgTarget').value,
         delivery_region: document.getElementById('cfgRegion').value,
         year: document.getElementById('cfgYear').value,
