@@ -175,11 +175,11 @@ function buildMonthList(yearParam) {
 
 async function fetchFacilityMonth(client, facilityCode, year, month, force) {
   const monthStr = `${year}-${String(month).padStart(2, '0')}`;
-  const cacheKey = `aed:portfolio:gen:v1:${facilityCode}:${monthStr}`;
+  const cacheKey = `aed:portfolio:gen:v2:${facilityCode}:${monthStr}`;
 
   if (!force) {
     const cached = await kvGet(cacheKey);
-    if (cached && typeof cached === 'object') return cached;
+    if (cached && typeof cached === 'object' && Object.keys(cached).length > 0) return cached;
   }
 
   const lastDay   = new Date(year, month, 0).getDate();
@@ -188,13 +188,10 @@ async function fetchFacilityMonth(client, facilityCode, year, month, force) {
   const dateEnd   = `${monthStr}-${String(lastDay).padStart(2, '0')}`;
 
   try {
-    // CRITICAL: interval must be 'hour' not '1h'.
-    // '1h' is unrecognised, falls back to '5m' default, which then fails with a
-    // 400 "date range too large" error for any month-length request (>8 days).
-    // That error was being silently caught and returning {} for every facility-month,
-    // causing zero generation to be attributed in the simulation.
+    // interval: '1h' is correct for getFacilityData (valid options: 5m, 1h, 1d, 7d, 1M).
+    // Note: getNetworkData uses 'hour' — different convention, same duration.
     const resp = await client.getFacilityData('NEM', facilityCode, ['power'], {
-      interval: 'hour', dateStart, dateEnd,
+      interval: '1h', dateStart, dateEnd,
     });
 
     const rows = resp?.datatable?.rows || [];
@@ -238,7 +235,7 @@ async function fetchPriceMonth(region, year, month, force) {
 
   if (!force) {
     const cached = await kvGet(cacheKey);
-    if (cached && typeof cached === 'object') return cached;
+    if (cached && typeof cached === 'object' && Object.keys(cached).length > 0) return cached;
   }
 
   const ym  = `${year}${String(month).padStart(2, '0')}`;
