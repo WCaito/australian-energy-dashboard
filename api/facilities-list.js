@@ -2,21 +2,21 @@
  * api/facilities-list.js — Operating wind, solar and gas facilities from OpenElectricity
  *
  * getFacilities() returns UNIT-level records (one row per generating unit/DUID).
- * Field names from the OE JS SDK RecordTable:
- *   facility_code, facility_name, network_region,
- *   unit_code, unit_fueltech, unit_capacity, unit_status
+ * Confirmed field names from bess-nsw.js (working code in this codebase):
+ *   facility_code, facility_name, facility_region  ← region is facility_region NOT network_region
+ *   unit_code, unit_fueltech, unit_capacity
  *
- * We deduplicate to facility level, summing unit capacities.
- * Fueltechs kept: wind, solar_utility, gas_ocgt, gas_ccgt, gas_steam, gas_recip
+ * We deduplicate to facility level, summing unit capacities, and keep only
+ * fueltechs relevant to a flat-supply portfolio.
  */
 
 'use strict';
 
-const ALLOWED_FUELTECHS = ['wind', 'solar_utility', 'gas_ocgt', 'gas_ccgt', 'gas_steam', 'gas_recip'];
-const CACHE_KEY = 'aed:portfolio:facilities-list:v2';
+const ALLOWED_FUELTECHS = new Set(['wind', 'solar_utility', 'gas_ocgt', 'gas_ccgt', 'gas_steam', 'gas_recip']);
+const CACHE_KEY = 'aed:portfolio:facilities-list:v3';
 const CACHE_TTL = 24 * 3600;
 
-// ── Redis helpers ──────────────────────────────────────────────────────────────
+// ── Redis ──────────────────────────────────────────────────────────────────────
 
 async function getRedis() {
   const { Redis } = await import('@upstash/redis');
@@ -61,8 +61,10 @@ module.exports = async function handler(req, res) {
     const cached = await kvGet(CACHE_KEY);
     if (Array.isArray(cached) && cached.length > 0) {
       return res.status(200).json({
-        success: true, facilities: applyFilters(cached, qFilter, rFilter),
-        fromCache: true, total: cached.length,
+        success: true,
+        facilities: applyFilters(cached, qFilter, rFilter),
+        fromCache: true,
+        total: cached.length,
       });
     }
   }
@@ -70,42 +72,37 @@ module.exports = async function handler(req, res) {
   // ── Fetch from OE ─────────────────────────────────────────────────────────
   try {
     const client = await getClient();
-    const { table } = await client.getFacilities({ network_id: 'NEM', status_id: ['operating'] });
-    const rows = table?.getRecords ? table.getRecords() : (table?.rows ?? []);
+    const result = await client.getFacilities({ network_id: 'NEM', status_id: ['operating'] });
 
-    console.log(`[facilities-list] raw rows: ${rows.length}`);
+    // Handle both possible SDK return shapes
+    const tbl  = result?.table ?? result;
+    const rows = typeof tbl?.getRecords === 'function' ? tbl.getRecords() : (tbl?.rows ?? []);
 
-    // Log first row so we can see the actual field names
+    console.log(`[facilities-list] total rows from OE: ${rows.length}`);
+
     if (rows.length > 0) {
-      console.log('[facilities-list] sample row keys:', Object.keys(rows[0]).join(', '));
-      console.log('[facilities-list] sample row:', JSON.stringify(rows[0]).slice(0, 300));
+      // Log field names of first row so we can debug any future SDK changes
+      console.log('[facilities-list] row keys:', Object.keys(rows[0]).join(', '));
+      console.log('[facilities-list] sample:', JSON.stringify(rows[0]).slice(0, 400));
     }
 
-    // Build facility map — deduplicate units into facilities
-    // Try both naming conventions (SDK may evolve)
+    // Deduplicate units → facilities
+    // Key field names confirmed from bess-nsw.js (working code in this repo):
+    //   facility_code, facility_name, facility_region, unit_fueltech, unit_capacity
     const facilityMap = {};
 
     for (const r of rows) {
-      // Facility-level fields
-      const facilityCode = (r.facility_code || r.code || '').toUpperCase();
-      const facilityName = r.facility_name || r.name || '';
-      const region       = (r.network_region || r.region || '').toUpperCase();
-
-      // Unit-level fields — SDK uses unit_fueltech, unit_capacity
-      const fueltech  = (r.unit_fueltech || r.fueltech || r.fueltech_id || '').toLowerCase();
-      const capacity  = parseFloat(r.unit_capacity || r.registered_capacity || r.capacity || 0) || 0;
+      const facilityCode = (r.facility_code || '').trim().toUpperCase();
+      const facilityName = (r.facility_name || '').trim();
+      const region       = (r.facility_region || '').trim().toUpperCase();  // ← facility_region, NOT network_region
+      const fueltech     = (r.unit_fueltech || '').trim().toLowerCase();
+      const capacity     = parseFloat(r.unit_capacity || 0) || 0;
 
       if (!facilityCode || !facilityName || !region) continue;
-      if (!ALLOWED_FUELTECHS.includes(fueltech)) continue;
+      if (!ALLOWED_FUELTECHS.has(fueltech)) continue;
 
       if (!facilityMap[facilityCode]) {
-        facilityMap[facilityCode] = {
-          code: facilityCode,
-          name: facilityName,
-          region,
-          fueltech,
-          capacity: 0,
-        };
+        facilityMap[facilityCode] = { code: facilityCode, name: facilityName, region, fueltech, capacity: 0 };
       }
       facilityMap[facilityCode].capacity += capacity;
     }
@@ -114,12 +111,20 @@ module.exports = async function handler(req, res) {
       .map(f => ({ ...f, capacity: f.capacity > 0 ? Math.round(f.capacity) : null }))
       .sort((a, b) => a.region.localeCompare(b.region) || a.name.localeCompare(b.name));
 
-    console.log(`[facilities-list] after filter+dedup: ${facilities.length} facilities`);
-
-    // Log fueltech distribution for debugging
+    // Log summary for debugging
     const ftCounts = {};
     for (const f of facilities) ftCounts[f.fueltech] = (ftCounts[f.fueltech] || 0) + 1;
-    console.log('[facilities-list] fueltech counts:', JSON.stringify(ftCounts));
+    console.log(`[facilities-list] after filter: ${facilities.length} facilities | fueltechs: ${JSON.stringify(ftCounts)}`);
+
+    if (facilities.length === 0) {
+      // Return raw fueltech values seen so we can debug
+      const seenFT = [...new Set(rows.map(r => r.unit_fueltech || 'undefined'))].sort();
+      console.warn('[facilities-list] 0 facilities matched. unit_fueltech values seen:', seenFT.join(', '));
+      return res.status(200).json({
+        success: true, facilities: [], fromCache: false, total: 0,
+        debug: { rowCount: rows.length, seenFueltechs: seenFT, allowedFueltechs: [...ALLOWED_FUELTECHS] },
+      });
+    }
 
     await kvSet(CACHE_KEY, facilities);
 
