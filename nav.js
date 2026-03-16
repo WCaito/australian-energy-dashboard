@@ -38,6 +38,7 @@
     { key: 'batteries',   label: 'Facilities', href: 'bess-nsw.html'                 },
     { key: 'analysis',    label: 'Analysis',      href: 'analysis.html'                 },
     { key: 'scenario',   label: 'Scenario Sim',  href: 'scenario.html'                 },
+    { key: 'portfolio',  label: 'Portfolio',      href: 'portfolio.html'                },
   ];
 
   // ── Shared CSS ────────────────────────────────────────────────────────────
