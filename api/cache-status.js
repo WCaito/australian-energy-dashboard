@@ -12,7 +12,6 @@ const HISTORICAL_REGIONS = ['NSW1', 'VIC1', 'QLD1', 'SA1', 'TAS1'];
 // Entries we check. Historical data is all in ONE key (merged object).
 const SIMPLE_ENTRIES = [
   { key: CACHE_KEYS.LIVE_PRICES,   label: 'Live Prices'   },
-  { key: CACHE_KEYS.NEWS,          label: 'Energy News'   },
   { key: CACHE_KEYS.FACILITY_DATA, label: 'Facility Data' },
   { key: CACHE_KEYS.BESS_NSW,      label: 'NSW Batteries' },
 ];
